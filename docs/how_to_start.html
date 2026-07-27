@@ -31,6 +31,23 @@
       line-height: 1.6;
     }
 
+    /* The browser default link colour is unreadable on this background. */
+    a {
+      color: var(--accent);
+      text-decoration-color: rgba(124, 156, 255, 0.45);
+      text-underline-offset: 3px;
+    }
+
+    a:visited {
+      color: var(--accent);
+    }
+
+    a:hover,
+    a:focus-visible {
+      color: var(--accent-2);
+      text-decoration-color: var(--accent-2);
+    }
+
     .wrap {
       max-width: 1100px;
       margin: 0 auto;
