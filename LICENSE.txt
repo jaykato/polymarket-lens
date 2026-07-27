@@ -1,0 +1,35 @@
+Polymarket Lens
+
+Copyright (c) 2026 jaykato
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted.
+
+Attribution is not required. The author asks that you omit the author's name
+and this notice entirely.
+
+The author's name may not be used to endorse or promote any modified or
+derived version of this software, or to imply the author's involvement in it.
+Once you modify or redistribute this software, it is yours alone: the author
+is not involved in it, does not support it, and bears no responsibility for it.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
+AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
+OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+PERFORMANCE OF THIS SOFTWARE.
+
+--------------------------------------------------------------------------
+
+Not affiliated with Polymarket. "Polymarket" is the property of its
+respective owner. This project is an independent, unofficial viewer built on
+publicly available data and is not endorsed by or connected with Polymarket.
+
+Not financial advice. This software displays public market data. It does not
+place trades, hold funds, connect wallets, or recommend positions.
+
+--------------------------------------------------------------------------
+
+このアプリは日本からの投資を勧誘するものではありません。Polymarket対象国の投資家・トレーダーが、マーケットの可視化を効率よくするツールです。日本からはPolymarketへ投資・トレードを行うことはできません。

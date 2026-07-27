@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Polymarket Lens</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">POLYMARKET <span>LENS</span><i id="app-version"></i></a>
+    <div class="status"><i></i> READ-ONLY ANALYTICS</div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">MARKET INTELLIGENCE</p>
+        <h1>See the signal<br>behind the odds.</h1>
+        <p class="intro">Explore public Polymarket data, price history, liquidity and spreads. No wallet. No trading.</p>
+      </div>
+      <div class="stat-grid">
+        <article><strong id="market-count">—</strong><span>Markets tracked</span></article>
+        <article><strong id="point-count">—</strong><span>Price observations</span></article>
+        <article class="wide"><strong id="last-sync">Not synced</strong><span>Last data sync (local time)</span></article>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <div class="market-panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">DISCOVER</p>
+            <h2>Active markets</h2>
+          </div>
+          <label class="search">
+            <span>⌕</span>
+            <input id="search" type="search" placeholder="Search markets">
+          </label>
+        </div>
+        <div class="list-controls">
+          <label class="control">
+            <span>SORT BY</span>
+            <select id="sort"></select>
+          </label>
+          <label class="control checkbox">
+            <input id="hide-thin" type="checkbox">
+            <span>Hide thin markets (under $1k liquidity)</span>
+          </label>
+        </div>
+        <div id="search-status" class="search-status" aria-live="polite"></div>
+        <div class="list-viewport">
+          <div id="market-list" class="market-list">
+            <p class="empty">Loading saved market data…</p>
+          </div>
+        </div>
+      </div>
+
+      <aside id="detail" class="detail-panel">
+        <div class="placeholder">
+          <span class="orb"></span>
+          <h2>Select a market</h2>
+          <p>Choose a market to inspect its probability history and market quality.</p>
+        </div>
+      </aside>
+    </section>
+
+    <section class="notice">
+      <strong>Research tool, not financial advice.</strong>
+      <span>This application visualizes public data only. It does not place trades or recommend positions. Availability and laws vary by region.</span>
+    </section>
+  </main>
+
+  <div class="viewport-guard" role="alertdialog" aria-labelledby="viewport-guard-title">
+    <div class="viewport-guard-dialog">
+      <h2 id="viewport-guard-title">Screen too small</h2>
+      <p>Please view at 960px width and 540px height or larger.</p>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

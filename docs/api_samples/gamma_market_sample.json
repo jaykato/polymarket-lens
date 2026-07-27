@@ -1,0 +1,36 @@
+{
+  "captured_at": "2026-07-25T00:00:00+09:00",
+  "request": "GET https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=1",
+  "response": {
+    "id": "540817",
+    "question": "New Rihanna Album before GTA VI?",
+    "conditionId": "0x1fad72fae204143ff1c3035e99e7c0f65ea8d5cd9bd1070987bd1a3316f772be",
+    "slug": "new-rhianna-album-before-gta-vi-926",
+    "endDate": "2026-07-31T12:00:00Z",
+    "liquidity": "7422.7869",
+    "outcomes": "[\"Yes\", \"No\"]",
+    "outcomePrices": "[\"0.515\", \"0.485\"]",
+    "volume": "871377.3156860147",
+    "active": true,
+    "closed": false,
+    "restricted": true,
+    "enableOrderBook": true,
+    "orderPriceMinTickSize": 0.01,
+    "orderMinSize": 5,
+    "clobTokenIds": "[\"98022490269692409998126496127597032490334070080325855126491859374983463996227\", \"53831553061883006530739877284105938919721408776239639687877978808906551086026\"]",
+    "acceptingOrders": true,
+    "spread": 0.03,
+    "lastTradePrice": 0.53,
+    "bestBid": 0.5,
+    "bestAsk": 0.53,
+    "feesEnabled": true,
+    "feeType": "general_fees",
+    "feeSchedule": {
+      "exponent": 1,
+      "rate": 0.05,
+      "takerOnly": true,
+      "rebateRate": 0.25
+    }
+  },
+  "note": "The response field is a lossless subset of the live response, retaining fields needed for the initial data model."
+}
