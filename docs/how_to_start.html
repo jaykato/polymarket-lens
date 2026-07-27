@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="ja">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Polymarket Lens 使用方法</title>
+  <title>Polymarket Lens &mdash; How to use</title>
   <style>
     :root {
       --bg: #0b1020;
@@ -192,7 +192,7 @@
       line-height: 1.7;
     }
 
-    /* カード内は幅が狭いので、横スクロールさせず折り返す。 */
+    /* Cards are narrow, so wrap instead of scrolling sideways. */
     .card pre {
       padding: 12px 14px;
     }
@@ -317,57 +317,59 @@
   <main class="wrap">
     <section class="hero">
       <div class="eyebrow">Polymarket Lens &middot; v0.6.1</div>
-      <h1>使用方法</h1>
+      <h1>How to use</h1>
       <p class="lead">
-        Polymarketの公開APIを使う、読み取り専用のローカル分析アプリです。
-        ウォレット、秘密鍵、APIキーは使いません。売買機能もありません。
+        A read-only local viewer for public Polymarket data. It uses no wallet,
+        no private key, and no API key, and it cannot place a trade.
       </p>
     </section>
 
-    <h2 class="section-title">動作環境</h2>
+    <h2 class="section-title">Requirements</h2>
     <div class="table-scroll" style="margin-top:18px">
       <table>
         <thead>
           <tr>
-            <th>項目</th>
-            <th>必要なもの</th>
+            <th>Item</th>
+            <th>What you need</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td>Python</td>
             <td class="muted">
-              <strong>3.10以上</strong>。入っていない場合は
-              <a href="https://www.python.org/downloads/">python.org</a> から入れ、
-              インストール時に「Add python.exe to PATH」に必ずチェックを入れてください
+              <strong>3.10 or newer.</strong> If it is not installed, get it from
+              <a href="https://www.python.org/downloads/">python.org</a> and be sure to
+              tick <em>Add python.exe to PATH</em> during setup
             </td>
           </tr>
           <tr>
-            <td>追加パッケージ</td>
+            <td>Packages</td>
             <td class="muted">
-              不要。標準ライブラリだけで動きます。<code>pip install</code>も仮想環境も要りません
+              None. The application runs on the standard library alone. There is no
+              <code>pip install</code> step and no virtual environment
             </td>
           </tr>
           <tr>
-            <td>OS</td>
+            <td>Operating system</td>
             <td class="muted">
-              <strong>Windows 11でのみ動作確認しています。</strong>
-              macOS・Linuxは未検証です。<code>start_app.bat</code>と<code>sync_data.bat</code>は
-              Windows専用のため、他のOSでは「7. コマンドで操作する」の方法を使ってください
+              <strong>Tested on Windows 11 only.</strong>
+              macOS and Linux are unverified. <code>start_app.bat</code> and
+              <code>sync_data.bat</code> are Windows-only, so on other systems use the
+              commands in section 7
             </td>
           </tr>
           <tr>
-            <td>画面</td>
-            <td class="muted">960 &times; 540ピクセル以上のウィンドウ。スマートフォンは非対応です</td>
+            <td>Display</td>
+            <td class="muted">A window of at least 960 &times; 540 pixels. Phones are not supported</td>
           </tr>
           <tr>
-            <td>ブラウザ</td>
-            <td class="muted">最近のものであれば種類は問いません。画面はブラウザ上に表示されます</td>
+            <td>Browser</td>
+            <td class="muted">Any recent one. The interface is served to your browser</td>
           </tr>
           <tr>
-            <td>ネット接続</td>
+            <td>Network</td>
             <td class="muted">
-              データ取得時のみ必要です。取得済みのデータを見るだけならオフラインでも動きます
+              Needed only while fetching data. Reading what is already stored works offline
             </td>
           </tr>
         </tbody>
@@ -375,93 +377,95 @@
     </div>
 
     <p class="note">
-      Pythonが見つからない場合、<code>start_app.bat</code>はその旨を表示して停止します。
-      画面の案内どおりPythonを入れてから、もう一度実行してください。
+      If Python is missing, <code>start_app.bat</code> says so and stops. Install Python
+      as the message describes, then run it again.
     </p>
 
-    <h2 class="section-title">1. 起動する</h2>
+    <h2 class="section-title">1. Start it</h2>
     <ol class="steps">
       <li>
-        <strong><code>start_app.bat</code> をダブルクリック</strong>
-        <p>ダウンロードした <code>polymarket-lens</code> フォルダの直下にあります。黒い画面が開きます。</p>
+        <strong>Double-click <code>start_app.bat</code></strong>
+        <p>It sits at the top of the <code>polymarket-lens</code> folder you downloaded. A console window opens.</p>
       </li>
       <li>
-        <strong>初回だけ、データ取得を待つ</strong>
+        <strong>Wait for the first download</strong>
         <p>
-          <code>data\polymarket.db</code> がまだ無い場合、公開APIから25市場を取得して
-          SQLiteへ保存します。2回目以降はこの待ち時間はありません。
+          If <code>data\polymarket.db</code> does not exist yet, 25 markets are fetched from
+          the public API and written to SQLite. Later runs skip this wait.
         </p>
       </li>
       <li>
-        <strong>ブラウザが自動で開く</strong>
+        <strong>Your browser opens</strong>
         <p>
-          開かない場合は <code>http://127.0.0.1:8765</code> を手で開いてください。
+          If it does not, open <code>http://127.0.0.1:8765</code> yourself.
         </p>
       </li>
       <li>
-        <strong>終了するときは黒い画面で Ctrl+C</strong>
-        <p>ブラウザのタブを閉じただけではサーバーは止まりません。</p>
+        <strong>To stop, press Ctrl+C in the console window</strong>
+        <p>Closing the browser tab does not stop the server.</p>
       </li>
     </ol>
 
     <div class="callout">
-      <strong>表示には960 &times; 540ピクセル以上のウィンドウが必要です</strong>
+      <strong>The interface needs a window of at least 960 &times; 540 pixels</strong>
       <p>
-        これを下回るサイズ、およびスマートフォンでは、画面を表示せず案内だけが出ます。
-        左右2ペインの構成を保つための制限です。ウィンドウを広げるか、PCで開いてください。
+        Below that size, and on phones, it shows a notice instead of the layout. The limit
+        exists to keep the two-pane structure intact. Widen the window, or open it on a
+        desktop machine.
       </p>
     </div>
 
-    <h2 class="section-title">2. 市場を探す</h2>
+    <h2 class="section-title">2. Find a market</h2>
     <section class="grid">
       <article class="card">
         <div class="tag">Search</div>
-        <h3>検索</h3>
+        <h3>Search</h3>
         <p>
-          質問文、説明文、slug（URLの断片）を対象に検索します。
-          保存済みデータに該当が無いキーワードは、Polymarketの公開検索へ自動で問い合わせ、
-          見つかった市場をDBへ保存します。
+          Searches the question text, the description, and the slug. If a keyword matches
+          nothing in your local database, Polymarket's public search is queried instead and
+          whatever it returns is saved.
         </p>
       </article>
 
       <article class="card">
         <div class="tag">Sort</div>
-        <h3>並べ替え</h3>
+        <h3>Sort</h3>
         <p>
-          出来高、流動性、終了日（近い順）、スプレッド（狭い順）の4通りです。
-          既定は出来高順です。
+          By volume, liquidity, end date (soonest first), or spread (tightest first).
+          Volume is the default.
         </p>
       </article>
 
       <article class="card">
         <div class="tag">Filter</div>
-        <h3>薄い市場を隠す</h3>
+        <h3>Hide thin markets</h3>
         <p>
-          「Hide thin markets」で流動性 $1,000 未満の市場を除きます。
-          板が薄い市場は、表示価格どおりに約定しない可能性が高くなります。
+          <em>Hide thin markets</em> drops anything under $1,000 of liquidity. In a thin
+          book, your order is more likely to fill away from the displayed price.
         </p>
       </article>
     </section>
 
-    <h2 class="section-title">3. チャートを読む</h2>
+    <h2 class="section-title">3. Read the chart</h2>
     <p class="lead">
-      市場をクリックすると右側に詳細が出ます。チャートはYES確率の推移です。
+      Click a market and its detail appears on the right. The chart is the YES probability
+      over time.
     </p>
 
     <div class="table-scroll" style="margin-top:18px">
       <table>
         <thead>
           <tr>
-            <th>期間</th>
-            <th>解像度</th>
-            <th>用途</th>
+            <th>Range</th>
+            <th>Resolution</th>
+            <th>Use it for</th>
           </tr>
         </thead>
         <tbody>
-          <tr><td><code>1D</code></td><td>5分刻み</td><td class="muted">直近1日の細かい動きを見る</td></tr>
-          <tr><td><code>1W</code></td><td>1時間刻み</td><td class="muted">既定。1週間の流れを見る</td></tr>
-          <tr><td><code>1M</code></td><td>3時間刻み</td><td class="muted">1ヶ月のトレンドを見る</td></tr>
-          <tr><td><code>MAX</code></td><td>12時間刻み</td><td class="muted">市場が始まってからの全体像を見る</td></tr>
+          <tr><td><code>1D</code></td><td>5 minutes</td><td class="muted">Fine detail over the past day</td></tr>
+          <tr><td><code>1W</code></td><td>1 hour</td><td class="muted">The default. The shape of the past week</td></tr>
+          <tr><td><code>1M</code></td><td>3 hours</td><td class="muted">A month-long trend</td></tr>
+          <tr><td><code>MAX</code></td><td>12 hours</td><td class="muted">Everything since the market opened</td></tr>
         </tbody>
       </table>
     </div>
@@ -469,61 +473,61 @@
     <section class="grid" style="margin-top:18px">
       <article class="card">
         <div class="tag">Axis</div>
-        <h3>縦軸は常に0〜100%</h3>
+        <h3>The vertical axis is always 0&ndash;100%</h3>
         <p>
-          データの範囲に合わせた自動拡大はしません。拡大すると、わずかな変動が
-          大きな動きに見えてしまうためです。
+          It never zooms to fit the data. Zooming makes a small move look like a large one.
         </p>
       </article>
 
       <article class="card">
         <div class="tag">Axis</div>
-        <h3>横軸は実時刻</h3>
+        <h3>The horizontal axis is real time</h3>
         <p>
-          観測点の順番ではなく実際の時刻で描きます。データが飛んでいる区間は、
-          そのまま横に間延びして見えます。
+          Points are plotted at the time they were recorded, not by their position in the
+          series. Where observation stopped, the line stretches across the gap.
         </p>
       </article>
 
       <article class="card">
         <div class="tag">Hover</div>
-        <h3>カーソルを重ねる</h3>
+        <h3>Hover over a point</h3>
         <p>
-          その時点のYES確率と日時が出ます。チャート右上には、選択中の期間での
-          変動幅がポイント単位で表示されます。
+          The YES probability and the timestamp appear. The top right of the chart shows
+          the change across the selected range, in points.
         </p>
       </article>
     </section>
 
     <div class="callout">
-      <strong>1Dを見たあと1Wに戻すと、右端だけ点が密になります</strong>
+      <strong>After viewing 1D, the right-hand edge of 1W looks denser</strong>
       <p>
-        取得した観測値をすべて同じ場所に貯めているためです。補間も間引きもしておらず、
-        どの点も実際に記録された値です。表示が細かくなるだけで、形は正しいままです。
+        Every observation is stored in the same place, whichever range fetched it. Nothing
+        is interpolated and nothing is thinned out &mdash; every point is a value that was
+        actually recorded. Only the density of the drawing changes; the shape stays true.
       </p>
     </div>
 
-    <h2 class="section-title">4. 価格変動サマリーを読む</h2>
+    <h2 class="section-title">4. Read the movement summary</h2>
     <p class="lead">
-      チャートの下に、選択中の期間について観測された事実だけが並びます。
-      追加のAPI呼び出しはせず、保存済みの履歴だけから計算しています。
+      Below the chart is what was observed over the selected range, and nothing more. It is
+      computed from stored history, with no extra API calls.
     </p>
 
     <div class="table-scroll" style="margin-top:18px">
       <table>
         <thead>
           <tr>
-            <th>項目</th>
-            <th>意味</th>
+            <th>Item</th>
+            <th>Meaning</th>
           </tr>
         </thead>
         <tbody>
-          <tr><td>Change over range</td><td class="muted">期間の最初から最後までの変動幅</td></tr>
-          <tr><td>Change, last 24h</td><td class="muted">直近24時間の変動幅。期間が24時間に満たない場合は出ません</td></tr>
-          <tr><td>Range high / low</td><td class="muted">期間内の高値・安値と、その時刻</td></tr>
-          <tr><td>High to low</td><td class="muted">高値と安値の差</td></tr>
-          <tr><td>Typical daily swing</td><td class="muted">1日あたりの典型的な変動幅</td></tr>
-          <tr><td>Largest single move</td><td class="muted">隣り合う観測点の間で最も大きかった変動と、その所要時間</td></tr>
+          <tr><td>Change over range</td><td class="muted">First to last point of the range</td></tr>
+          <tr><td>Change, last 24h</td><td class="muted">The past 24 hours. Hidden when the range is shorter than that</td></tr>
+          <tr><td>Range high / low</td><td class="muted">The highest and lowest points, and when each occurred</td></tr>
+          <tr><td>High to low</td><td class="muted">The distance between them</td></tr>
+          <tr><td>Typical daily swing</td><td class="muted">How far the probability moves in an ordinary day</td></tr>
+          <tr><td>Largest single move</td><td class="muted">The biggest step between two adjacent observations, and how long it took</td></tr>
         </tbody>
       </table>
     </div>
@@ -532,214 +536,220 @@
       <table>
         <thead>
           <tr>
-            <th>表示</th>
-            <th>意味</th>
+            <th>Label</th>
+            <th>Meaning</th>
           </tr>
         </thead>
         <tbody>
-          <tr><td><span class="swatch steady"></span>Steady</td><td class="muted">日々の動きが小さい</td></tr>
-          <tr><td><span class="swatch active"></span>Active</td><td class="muted">日々はっきり動いている</td></tr>
-          <tr><td><span class="swatch volatile"></span>Volatile</td><td class="muted">日々の振れが大きく、表示確率が安定しない</td></tr>
+          <tr><td><span class="swatch steady"></span>Steady</td><td class="muted">Day-to-day movement is small</td></tr>
+          <tr><td><span class="swatch active"></span>Active</td><td class="muted">It moves clearly from day to day</td></tr>
+          <tr><td><span class="swatch volatile"></span>Volatile</td><td class="muted">Daily swings are wide; the displayed probability is unsettled</td></tr>
         </tbody>
       </table>
     </div>
 
     <p class="note">
-      この3段階は<strong>動きの大きさだけ</strong>を表します。値動きの大小に良し悪しはないため、
-      次の「市場コンディション」とは別の配色にしています。
+      These three describe <strong>the size of the movement only</strong>. A large move is
+      neither good nor bad, which is why they use a different palette from the market
+      conditions below.
     </p>
 
-    <h2 class="section-title">5. 市場コンディションを読む</h2>
+    <h2 class="section-title">5. Read market conditions</h2>
     <p class="lead">
-      スプレッド、流動性、累積出来高から、その市場での<strong>売買のしやすさ</strong>を評価します。
-      YESとNOのどちらが当たるかの予測ではありません。
+      Spread, liquidity, and cumulative volume, combined into a read on <strong>how
+      expensive this market is to enter and leave</strong>. It is not a forecast of whether
+      YES or NO will resolve.
     </p>
 
     <div class="table-scroll" style="margin-top:18px">
       <table>
         <thead>
           <tr>
-            <th>色</th>
-            <th>意味</th>
+            <th>Colour</th>
+            <th>Meaning</th>
           </tr>
         </thead>
         <tbody>
-          <tr><td><span class="swatch good"></span>緑</td><td class="muted">比較的良好な取引環境</td></tr>
-          <tr><td><span class="swatch caution"></span>黄</td><td class="muted">価格または流動性に注意</td></tr>
-          <tr><td><span class="swatch risk"></span>ピンク</td><td class="muted">高コスト・低流動性の可能性</td></tr>
+          <tr><td><span class="swatch good"></span>Green</td><td class="muted">Relatively good trading conditions</td></tr>
+          <tr><td><span class="swatch caution"></span>Yellow</td><td class="muted">Watch the price or the liquidity</td></tr>
+          <tr><td><span class="swatch risk"></span>Pink</td><td class="muted">Possibly expensive, possibly illiquid</td></tr>
         </tbody>
       </table>
     </div>
 
     <div class="callout">
-      <strong>「良好」は「儲かりやすい」ではありません</strong>
+      <strong>"Good" does not mean "profitable"</strong>
       <p>
-        表示価格と実際の約定価格の差が比較的小さく、ポジションを出入りしやすい可能性を示すだけです。
-        「Crowd leans YES / NO」も、現在価格が示す市場参加者の傾きを説明するもので、
-        このアプリ独自の予測ではありません。
+        It says only that the gap between the displayed price and the price you would
+        actually get is relatively small, so a position is easier to open and close.
+        <em>Crowd leans YES / NO</em> likewise describes where the current price puts the
+        participants &mdash; it is not a prediction of this application's own.
       </p>
     </div>
 
-    <h2 class="section-title">6. データを更新する</h2>
+    <h2 class="section-title">6. Refresh the data</h2>
     <section class="grid">
       <article class="card">
         <div class="tag">Manual</div>
         <h3><code>sync_data.bat</code></h3>
         <p>
-          ダブルクリックすると、出来高上位50市場の情報、価格履歴、注文板を取り直します。
-          アプリを起動したままでも実行できます。更新後はブラウザを再読み込みしてください。
+          Double-click it to re-fetch the top 50 markets by volume, their price history, and
+          their order books. It can run while the application is up. Reload the browser
+          afterwards.
         </p>
       </article>
 
       <article class="card">
         <div class="tag">Automatic</div>
-        <h3>チャートの自動更新</h3>
+        <h3>The chart refreshes itself</h3>
         <p>
-          チャートの期間を切り替えたとき、その期間を最後に取得してから15分以上経っていれば
-          自動で取り直します。15分以内なら保存済みデータをそのまま表示します。
+          When you switch chart ranges, that range is re-fetched if more than 15 minutes
+          have passed since it was last retrieved. Within 15 minutes, stored data is shown
+          as is.
         </p>
       </article>
     </section>
 
-    <h2 class="section-title">7. コマンドで操作する</h2>
+    <h2 class="section-title">7. Use the command line</h2>
     <p class="lead">
-      コマンドラインから直接実行する場合です。Python 3.10以上が必要です。
-      Windowsの公式インストーラを使った場合は <code>py -3</code> でも実行できます。
+      For running the application directly. Python 3.10 or newer is required. If you
+      installed Python with the official Windows installer, <code>py -3</code> works too.
     </p>
 
-    <pre><code>cd <アプリを置いたフォルダ>
+    <pre><code>cd &lt;the folder you put the application in&gt;
 
-# データベースを初期化する
+# Create the database
 python -m polymarket_app init
 
-# 50市場を取得する
+# Fetch 50 markets
 python -m polymarket_app sync --markets 50
 
-# 保存件数を確認する
+# Show what is stored
 python -m polymarket_app stats
 
-# Web UIを起動する
+# Start the web interface
 python -m polymarket_app serve</code></pre>
 
     <div class="table-scroll" style="margin-top:18px">
       <table>
         <thead>
           <tr>
-            <th>コマンド</th>
-            <th>オプション</th>
-            <th>説明</th>
+            <th>Command</th>
+            <th>Option</th>
+            <th>Description</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td><code>init</code></td>
             <td class="muted">&mdash;</td>
-            <td class="muted">DBを作る。既存データは消えません</td>
+            <td class="muted">Create the database. Existing data is preserved</td>
           </tr>
           <tr>
             <td><code>sync</code></td>
             <td><code>--markets N</code></td>
-            <td class="muted">取得する市場数。既定は25</td>
+            <td class="muted">Number of markets to fetch. Default 25</td>
           </tr>
           <tr>
             <td></td>
             <td><code>--histories N</code></td>
-            <td class="muted">履歴を取る市場数の上限。省略時は全市場</td>
+            <td class="muted">Cap on markets to pull history for. Omitted means all</td>
           </tr>
           <tr>
             <td><code>stats</code></td>
             <td class="muted">&mdash;</td>
-            <td class="muted">market数、outcome数、価格点数、最終同期時刻</td>
+            <td class="muted">Market, outcome, and price-point counts, and the last sync time</td>
           </tr>
           <tr>
             <td><code>serve</code></td>
             <td><code>--port N</code></td>
-            <td class="muted">待ち受けポート。既定は8765</td>
+            <td class="muted">Listening port. Default 8765</td>
           </tr>
           <tr>
             <td></td>
             <td><code>--host H</code></td>
-            <td class="muted">既定は<code>127.0.0.1</code>。このPCからのみ接続できます</td>
+            <td class="muted">Default <code>127.0.0.1</code>, reachable only from this machine</td>
           </tr>
           <tr>
             <td colspan="2"><code>--db PATH</code></td>
-            <td class="muted">全コマンド共通。既定は<code>data\polymarket.db</code></td>
+            <td class="muted">Available on every command. Default <code>data\polymarket.db</code></td>
           </tr>
         </tbody>
       </table>
     </div>
 
-    <h2 class="section-title">8. 困ったとき</h2>
+    <h2 class="section-title">8. Troubleshooting</h2>
     <section class="grid">
       <article class="card">
         <div class="tag">Error</div>
-        <h3>ブラウザに何も出ない</h3>
+        <h3>The browser shows nothing</h3>
         <p>
-          黒い画面が閉じていないか確認してください。閉じているとサーバーが止まっています。
-          <code>start_app.bat</code> をもう一度実行します。
+          Check whether the console window is still open. If it closed, the server stopped.
+          Run <code>start_app.bat</code> again.
         </p>
       </article>
 
       <article class="card">
         <div class="tag">Error</div>
-        <h3>初回の同期に失敗する</h3>
+        <h3>The first sync fails</h3>
         <p>
-          インターネット接続を確認してから、もう一度実行してください。
-          Polymarket側が一時的に応答しない場合もあります。
+          Check your internet connection and try again. Polymarket's own endpoints are
+          sometimes temporarily unavailable.
         </p>
       </article>
 
       <article class="card">
         <div class="tag">Error</div>
-        <h3>ポート8765が使えない</h3>
+        <h3>Port 8765 is unavailable</h3>
         <p>
-          別のアプリが使っている可能性があります。
-          <code>serve --port 8790</code> のように変更し、その番号でブラウザを開いてください。
+          Another application may be holding it. Use something like
+          <code>serve --port 8790</code> and open that port in your browser.
         </p>
       </article>
 
       <article class="card">
         <div class="tag">Error</div>
-        <h3>チャートに履歴が出ない</h3>
+        <h3>The chart has no history</h3>
         <p>
-          注文板が有効でない市場には価格履歴がありません。
-          「No price history for this range.」と表示されます。
+          Markets without an active order book have no price history. You will see
+          <em>No price history for this range.</em>
         </p>
       </article>
 
       <article class="card">
         <div class="tag">Reset</div>
-        <h3>データを作り直したい</h3>
+        <h3>Start the data over</h3>
         <p>
-          <code>data</code> フォルダを削除してから <code>start_app.bat</code> を実行すると、
-          最初から取得し直します。
+          Delete the <code>data</code> folder, then run <code>start_app.bat</code>. Everything
+          is fetched again from scratch.
         </p>
       </article>
 
       <article class="card">
         <div class="tag">Test</div>
-        <h3>動作を確認したい</h3>
+        <h3>Check that it works</h3>
         <p>
-          テストはネット接続なしで実行できます。
+          The tests run without a network connection.
         </p>
         <pre><code>python -m unittest discover</code></pre>
       </article>
     </section>
 
-    <h2 class="section-title">注意事項</h2>
+    <h2 class="section-title">Scope and limits</h2>
     <div class="callout">
-      <strong>研究用ツールであり、投資助言ではありません</strong>
+      <strong>A research tool, not investment advice</strong>
       <p>
-        このアプリは公開データを表示するだけです。売買の実行、ウォレット接続、賭けの推奨、
-        地域制限の回避機能はありません。HTTPメソッドはGETのみを使い、注文の作成・取消は
-        実装していません。サーバーは既定で <code>127.0.0.1</code> にのみ接続を受け付けます。
-        Polymarketの利用可否と適用法令は地域により異なります。
+        This application displays public data and nothing else. It cannot execute a trade,
+        connect a wallet, recommend a position, or circumvent a regional restriction. It
+        issues only GET requests, and order creation and cancellation are not implemented.
+        The server accepts connections on <code>127.0.0.1</code> alone by default. Whether
+        Polymarket may be used, and which laws apply, differ by jurisdiction.
       </p>
     </div>
 
     <footer>
-      Polymarket Lens v0.6.1 &middot; 詳細な設計は
-      <code>README.md</code> と <code>docs/phase1_design.md</code> にあります。
+      Polymarket Lens v0.6.1 &middot; See <code>README.md</code> for the full description,
+      and <code>docs/ARCHITECTURE.md</code> for how it is built.
     </footer>
   </main>
 </body>

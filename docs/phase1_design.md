@@ -1,14 +1,15 @@
 # Phase 1 design
 
-## 方針
+## Principles
 
-- 認証不要のGamma APIとCLOB APIだけを使用する。
-- 外部依存を持たず、Python 3.10以上の標準ライブラリで動作させる。
-- APIレスポンスを防御的に解釈し、未知の追加フィールドを許容する。
-- 正規化データとレスポンス原文を両方保存する。
-- 収集、保存、Web表示を分離し、将来の`.exe`化に備える。
+- Use only the Gamma and CLOB APIs, and only their unauthenticated endpoints.
+- Run on the Python 3.10+ standard library, with no external dependencies.
+- Interpret API responses defensively, tolerating unknown added fields.
+- Store both the normalized data and the raw response.
+- Keep collection, storage, and web display separate, so packaging as an `.exe`
+  stays possible later.
 
-## データフロー
+## Data flow
 
 ```text
 Gamma API ── markets ───────┐
@@ -16,82 +17,90 @@ Gamma API ── markets ───────┐
 CLOB API ── history/book ───┘
 ```
 
-## 安全境界
+## Safety boundaries
 
-- HTTPメソッドは`GET`のみ。
-- クエリ文字列はSQLへ直接入れない。並べ替えは既知キーの表で解決し、
-  数値パラメータは変換に失敗したら無効化する。
-- `raw_json`はブラウザへ返さない。DBには検証用に残す。
-- CLOBの注文作成・取消エンドポイントを実装しない。
-- 秘密鍵、ウォレット、API認証情報を設定項目に持たない。
-- サーバーは既定で`127.0.0.1`だけにバインドする。
-- UIには読み取り専用であることと非推奨情報であることを常時表示する。
+- `GET` is the only HTTP method issued.
+- Query strings never reach SQL directly. Sort keys resolve through a table of
+  known keys, and a numeric parameter that fails conversion is discarded.
+- `raw_json` is never returned to the browser. It stays in the database for
+  verification.
+- The CLOB order creation and cancellation endpoints are not implemented.
+- There are no configuration fields for private keys, wallets, or API
+  credentials.
+- The server binds to `127.0.0.1` alone by default.
+- The interface states at all times that it is read-only and that nothing shown
+  is a recommendation.
 
-## 次の拡張候補
+## Candidates for later work
 
-1. 定期同期と差分更新
-2. EventとMarketの親子モデル
-3. 注文板の厚みと実効スプレッド
-4. 相互排他的市場の整合性チェック
-5. 解決済み市場を用いたキャリブレーション分析
-6. PyInstallerによるWindows `.exe`パッケージ
+1. Scheduled syncing and incremental updates
+2. A parent-child model for events and markets
+3. Order book depth and effective spread
+4. Consistency checks across mutually exclusive markets
+5. Calibration analysis using resolved markets
+6. A packaged Windows `.exe` via PyInstaller
 
-## 価格変動サマリー
+## Price movement summary
 
-`movement.py`は保存済みの`price_history`だけを入力にする。追加のAPI呼び出しは
-行わない。返すのは観測事実であり、予測でも推奨でもない。
+`movement.py` takes only the stored `price_history` as input. It makes no
+additional API calls. What it returns is observation, not forecast and not
+recommendation.
 
-観測間隔は期間ごとに異なるため、増分を`Δp / √(Δt日)`で正規化してから標準偏差を
-取り、1日あたりの典型的な変動幅とする。増分が3点に満たない場合はNoneを返し、
-UIは該当行を出さない。
+Because the observation interval differs per range, increments are normalized as
+`Δp / √(Δt days)` before the standard deviation is taken, which gives the typical
+daily swing. With fewer than three increments it returns None, and the interface
+omits the row.
 
-`Steady` / `Active` / `Volatile`の3段階は動きの大きさだけを表す。値動きの大小に
-良し悪しはないため、`analysis.py`の`good` / `caution` / `risk`とは別の配色を
-用いる。
+The three levels `Steady` / `Active` / `Volatile` describe the size of the
+movement only. A large move is neither good nor bad, so they use a different
+palette from the `good` / `caution` / `risk` levels in `analysis.py`.
 
-## 一覧の並べ替えと絞り込み
+## Sorting and filtering the list
 
-並べ替えキーは`database.MARKET_SORTS`で解決し、SQLへ文字列を直接渡さない。
-未知のキーは既定の並びへ丸める。
+Sort keys resolve through `database.MARKET_SORTS`; no string is passed into SQL
+directly. An unknown key falls back to the default ordering.
 
-絞り込みは流動性の下限で行う。Gammaの`restricted`は観測した421市場すべてで
-真であり、絞り込みには使えなかった。下限が0のときは条件自体を足さない。
-`NULL >= 0`がSQLではNULLになり、流動性が未取得の市場が黙って消えるため。
+Filtering is done on a liquidity floor. Gamma's `restricted` flag was true for
+all 421 markets observed, so it could not filter anything. When the floor is 0
+the condition is not added at all, because `NULL >= 0` evaluates to NULL in SQL
+and markets with no liquidity figure would silently disappear.
 
-## 価格チャートの期間管理
+## Chart range handling
 
-`history.py`が期間キーと取得条件の対応を一元管理する。
+`history.py` is the single place where a range key maps to its fetch parameters.
 
-| キー | interval | fidelity | 表示窓 |
+| Key | interval | fidelity | Display window |
 |------|----------|----------|--------|
-| `1d` | `1d` | 5分 | 24時間 |
-| `1w` | `1w` | 60分 | 7日 |
-| `1m` | `1m` | 180分 | 30日 |
-| `max` | `max` | 720分 | 制限なし |
+| `1d` | `1d` | 5 min | 24 hours |
+| `1w` | `1w` | 60 min | 7 days |
+| `1m` | `1m` | 180 min | 30 days |
+| `max` | `max` | 720 min | unbounded |
 
-未知のキーは`1w`へ丸めるため、クエリ文字列を検証なしで受け取っても
-例外にならない。
+An unknown key falls back to `1w`, so an unvalidated query string cannot raise.
 
-取得済み判定は`history_fetches`テーブルで期間ごとに行う。解像度が異なる点は
-同じ`price_history`へ蓄積され、抽出時に表示窓で絞る。同一期間の再取得は
-15分間抑制する。
+Whether a range has already been fetched is tracked per range in the
+`history_fetches` table. Points at different resolutions accumulate in the same
+`price_history` table and are narrowed by the display window when read back.
+Re-fetching the same range is suppressed for 15 minutes.
 
-UI側はx軸を実時刻で描く。時刻目盛りは等間隔ではなく、日付や時刻の境界へ
-合わせた「切りのよい」位置に置く。y軸は0〜100%固定とし、データ範囲への
-自動ズームは行わない。わずかな変動が大きな動きに見えるのを避けるため。
+The interface draws the x axis on real time. Time ticks are not evenly spaced;
+they are placed at round positions aligned to day and hour boundaries. The y
+axis is fixed at 0–100%, with no automatic zoom to the data range, so that a
+small move never looks like a large one.
 
-## 市場コンディション分析
+## Market condition analysis
 
-`analysis.py`は次の内部指標を0〜100で計算する。
+`analysis.py` computes these internal measures on a 0–100 scale.
 
-- Pricing: Bid/Askスプレッド
-- Exit flexibility: 流動性の対数スコア
-- Participation: 累積出来高の対数スコア
-- Execution: 上記を50% / 35% / 15%で合成
+- Pricing: the bid/ask spread
+- Exit flexibility: a logarithmic score on liquidity
+- Participation: a logarithmic score on cumulative volume
+- Execution: the three combined at 50% / 35% / 15%
 
-内部値は判定再現性とテストに使用し、UIへ数値として表示しない。UIは
-`good` / `caution` / `risk`を色、バー、短文に変換する。この評価は方向予測や
-利益可能性ではなく、取引コストと市場の厚みを説明する。
+The internal values exist for reproducibility and testing; they are never shown
+as numbers in the interface. The interface converts `good` / `caution` / `risk`
+into a colour, a bar, and a short sentence. This assessment describes transaction
+cost and market depth, not directional prediction or the chance of profit.
 
 ---
 

@@ -128,9 +128,9 @@ a network request.
 ## Documentation
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — how the application is built
-- [Usage guide](https://jaykato.github.io/polymarket-lens/how_to_start.html) — illustrated, step by step (Japanese)
-- [`docs/phase1_design.md`](docs/phase1_design.md) — design notes (Japanese)
-- [`docs/api_verification.md`](docs/api_verification.md) — API findings (Japanese)
+- [Usage guide](https://jaykato.github.io/polymarket-lens/how_to_start.html) — illustrated, step by step
+- [`docs/phase1_design.md`](docs/phase1_design.md) — design notes
+- [`docs/api_verification.md`](docs/api_verification.md) — API findings
 - [`DISCLAIMER.md`](DISCLAIMER.md) — risk, liability, and jurisdiction
 
 ## Safety boundaries
