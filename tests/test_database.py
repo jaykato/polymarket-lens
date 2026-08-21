@@ -184,3 +184,118 @@ class DatabaseTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FeeAndEntryCostTest(unittest.TestCase):
+    """手数料の取り込みと、一覧に出す摩擦の算出。"""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.path = Path(self.temp_dir.name) / "test.db"
+        self.database = Database(self.path)
+        self.database.initialize()
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def _market(self, condition_id: str, ask: str, quoted: str, **overrides):
+        market = {
+            "conditionId": condition_id,
+            "question": f"Market {condition_id}",
+            "active": True,
+            "closed": False,
+            "bestBid": "0.50",
+            "bestAsk": ask,
+            "liquidity": "5000",
+            "volume": "10000",
+            "feesEnabled": True,
+            "feeType": "culture_fees",
+            "feeSchedule": {"rate": 0.05, "exponent": 1, "takerOnly": True},
+            "outcomes": json.dumps(["Yes", "No"]),
+            "outcomePrices": json.dumps([quoted, str(1 - float(quoted))]),
+            "clobTokenIds": json.dumps([f"{condition_id}-yes", f"{condition_id}-no"]),
+        }
+        market.update(overrides)
+        return market
+
+    def test_fee_rate_and_type_are_stored(self) -> None:
+        self.database.upsert_market(self._market("a", "0.53", "0.515"))
+        detail = self.database.market_detail("a")
+        self.assertEqual(detail["fee_rate"], "0.05")
+        self.assertEqual(detail["fee_type"], "culture_fees")
+
+    def test_market_without_a_fee_schedule_stores_a_zero_rate(self) -> None:
+        """実測100件中15件はfeesEnabledがfalseでfeeSchedule自体が無い。"""
+        self.database.upsert_market(
+            self._market("b", "0.53", "0.515", feesEnabled=False, feeSchedule=None, feeType=None)
+        )
+        detail = self.database.market_detail("b")
+        self.assertEqual(float(detail["fee_rate"]), 0.0)
+
+    def test_entry_cost_includes_the_fee(self) -> None:
+        self.database.upsert_market(self._market("c", "0.53", "0.515"))
+        row = self.database.list_markets(limit=1)[0]
+        self.assertAlmostEqual(row["entry_cost"], 0.027455, places=6)
+
+    def test_untradable_markets_have_no_entry_cost(self) -> None:
+        """ask=1.00は利益が定義できない。差だけ見ると最安に見えてしまう。"""
+        self.database.upsert_market(self._market("d", "1", "0.999"))
+        row = self.database.list_markets(limit=1)[0]
+        self.assertIsNone(row["entry_cost"])
+        self.assertIsNone(row["entry_cost_ratio"])
+
+    def test_longshots_do_not_dominate_the_entry_cost_sort(self) -> None:
+        """ポイント差で並べると ask=0.001 の大穴が上位を独占する。
+
+        摩擦は+0.05ptしかないが、表示価格に対しては倍額の上乗せで、
+        実際には最も割高な部類。割合で並べればこれが下位へ落ちる。
+        """
+        self.database.upsert_market(self._market("longshot", "0.001", "0.0005"))
+        self.database.upsert_market(self._market("tight", "0.91", "0.905"))
+        ordered = [row["condition_id"] for row in self.database.list_markets(sort="entry_cost")]
+        self.assertEqual(ordered[0], "tight")
+        self.assertEqual(ordered[-1], "longshot")
+
+    def test_markets_without_an_entry_cost_sort_last(self) -> None:
+        self.database.upsert_market(self._market("priced", "0.53", "0.515"))
+        self.database.upsert_market(self._market("unpriced", "1", "0.999"))
+        ordered = [row["condition_id"] for row in self.database.list_markets(sort="entry_cost")]
+        self.assertEqual(ordered[-1], "unpriced")
+
+    def test_order_book_snapshot_round_trip(self) -> None:
+        self.database.upsert_market(self._market("e", "0.53", "0.515"))
+        book = {
+            "bids": [{"price": "0.50", "size": "10"}],
+            "asks": [{"price": "0.53", "size": "20"}],
+            "timestamp": "1700000000000",
+        }
+        self.database.save_order_book("e-yes", book)
+        stored = self.database.latest_order_book("e-yes")
+        self.assertEqual(stored["best_ask"], "0.53")
+        self.assertEqual(json.loads(stored["raw_json"])["asks"][0]["size"], "20")
+
+    def test_latest_snapshot_wins(self) -> None:
+        self.database.upsert_market(self._market("f", "0.53", "0.515"))
+        self.database.save_order_book("f-yes", {"bids": [], "asks": [{"price": "0.53", "size": "1"}]})
+        self.database.save_order_book("f-yes", {"bids": [], "asks": [{"price": "0.61", "size": "1"}]})
+        self.assertEqual(self.database.latest_order_book("f-yes")["best_ask"], "0.61")
+
+    def test_missing_snapshot_returns_none(self) -> None:
+        self.assertIsNone(self.database.latest_order_book("nothing"))
+
+    def test_migration_adds_fee_columns_to_an_existing_database(self) -> None:
+        """スキーマはCREATE TABLE IF NOT EXISTSなので、既存DBには列が入らない。
+
+        取りこぼすと手数料が常に0として扱われ、損益分岐が過小に出る。
+        """
+        import sqlite3
+
+        with self.database.connect() as connection:
+            connection.execute("ALTER TABLE markets DROP COLUMN fee_rate")
+            connection.execute("ALTER TABLE markets DROP COLUMN fee_type")
+        reopened = Database(self.path)
+        reopened.initialize()
+        with reopened.connect() as connection:
+            columns = {row["name"] for row in connection.execute("PRAGMA table_info(markets)")}
+        self.assertIn("fee_rate", columns)
+        self.assertIn("fee_type", columns)

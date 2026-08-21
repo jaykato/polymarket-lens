@@ -34,6 +34,11 @@ CREATE TABLE IF NOT EXISTS markets (
     spread TEXT,
     last_trade_price TEXT,
     fees_enabled INTEGER NOT NULL DEFAULT 0,
+    -- 手数料はカテゴリごとに違う（実測0.03〜0.07、無料の市場もある）。
+    -- feeSchedule.rateを使う。takerBaseFee/makerBaseFeeは全市場1000固定の
+    -- レガシー項目で実際の料率と矛盾するため、参照してはいけない。
+    fee_rate TEXT,
+    fee_type TEXT,
     updated_at_utc TEXT,
     fetched_at_utc TEXT NOT NULL,
     raw_json TEXT NOT NULL
@@ -95,6 +100,23 @@ def decimal_text(value: Any) -> str | None:
         return None
 
 
+def age_seconds(value: Any) -> float | None:
+    """保存時刻のISO文字列から、いまnまでの経過秒を出す。読めなければNone。
+
+    タイムゾーンの無い値はUTCとみなす。ローカル時刻として解釈すると、
+    時差ぶんだけ「新しい」ことになり、取り直しが止まる。
+    """
+    if not value:
+        return None
+    try:
+        fetched_at = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    if fetched_at.tzinfo is None:
+        fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - fetched_at).total_seconds()
+
+
 def parse_json_array(value: Any) -> list[Any]:
     if isinstance(value, list):
         return value
@@ -105,12 +127,45 @@ def parse_json_array(value: Any) -> list[Any]:
     return []
 
 
+# 最良気配での摩擦。板を歩かないので、保存済みのbest_askだけで出せる。
+#
+#     entry_cost = best_ask + rate × best_ask × (1 − best_ask) − quoted
+#
+# best_askが0以下または1以上のときはNULLにする。1.00払って1.00受け取る建玉は
+# 利益が定義できず、差だけ見ると「最も安い」と誤解されて先頭に並んでしまう。
+ENTRY_COST_SQL = """
+        CASE
+          WHEN m.best_ask IS NULL OR o.current_price IS NULL THEN NULL
+          WHEN CAST(m.best_ask AS REAL) <= 0 OR CAST(m.best_ask AS REAL) >= 1 THEN NULL
+          ELSE CAST(m.best_ask AS REAL)
+               + COALESCE(CAST(m.fee_rate AS REAL), 0)
+                 * CAST(m.best_ask AS REAL) * (1 - CAST(m.best_ask AS REAL))
+               - CAST(o.current_price AS REAL)
+        END"""
+
+# 摩擦を表示価格に対する割合で見たもの。並べ替えはこちらを使う。
+#
+# ポイント差だけで並べると、極端な大穴が上位を独占する。ask 0.001 の市場は
+# 摩擦が+0.05ptしかないが、表示価格に対しては100%の上乗せで、実際には
+# 最も割高な部類にあたる。割合で見ればこれが正しく下位へ落ちる。
+ENTRY_COST_RATIO_SQL = f"""
+        CASE
+          WHEN CAST(o.current_price AS REAL) IS NULL
+            OR CAST(o.current_price AS REAL) <= 0 THEN NULL
+          ELSE ({ENTRY_COST_SQL}) / CAST(o.current_price AS REAL)
+        END"""
+
 # UIの並べ替え。キーはSQLへ直接入れず、必ずこの表を通して解決する。
 MARKET_SORTS: dict[str, tuple[str, str]] = {
     "volume": ("Volume", "CAST(m.volume AS REAL) DESC"),
     "liquidity": ("Liquidity", "CAST(m.liquidity AS REAL) DESC"),
     "ending_soon": ("Ending soon", "m.end_date_utc IS NULL, m.end_date_utc ASC"),
     "spread": ("Tightest price gap", "m.spread IS NULL, CAST(m.spread AS REAL) ASC"),
+    # 算出できない市場は末尾へ送る。先頭に来ると「摩擦ゼロ」に見える。
+    "entry_cost": (
+        "Lowest entry cost",
+        "entry_cost_ratio IS NULL, entry_cost_ratio ASC",
+    ),
 }
 
 DEFAULT_SORT_KEY = "volume"
@@ -159,6 +214,22 @@ class Database:
     def initialize(self) -> None:
         with self.connect() as connection:
             connection.executescript(SCHEMA)
+            self._migrate(connection)
+
+    @staticmethod
+    def _migrate(connection: sqlite3.Connection) -> None:
+        """既存DBへ後から入った列を足す。
+
+        スキーマは`CREATE TABLE IF NOT EXISTS`なので、テーブルが既にある
+        データベースには新しい列が入らない。取りこぼすと手数料が常に0として
+        扱われ、損益分岐が過小に出る。
+        """
+        existing = {
+            row["name"] for row in connection.execute("PRAGMA table_info(markets)")
+        }
+        for column in ("fee_rate", "fee_type"):
+            if column not in existing:
+                connection.execute(f"ALTER TABLE markets ADD COLUMN {column} TEXT")
 
     def upsert_market(self, market: dict[str, Any]) -> int:
         condition_id = market.get("conditionId") or market.get("condition_id")
@@ -168,6 +239,14 @@ class Database:
         events = market.get("events") or []
         event_id = str(events[0].get("id")) if events and events[0].get("id") else None
         fetched_at = utc_now()
+        # feesEnabledがfalseの市場にはfeeScheduleごと無い（実測100件中15件、
+        # いずれも地政学系）。その場合の料率は0で、手数料項は消える。
+        fee_schedule = market.get("feeSchedule")
+        fee_rate = (
+            decimal_text(fee_schedule.get("rate"))
+            if isinstance(fee_schedule, dict) and market.get("feesEnabled")
+            else decimal_text(0)
+        )
         values = {
             "condition_id": condition_id,
             "gamma_id": str(market.get("id")) if market.get("id") is not None else None,
@@ -188,6 +267,8 @@ class Database:
             "spread": decimal_text(market.get("spread")),
             "last_trade_price": decimal_text(market.get("lastTradePrice")),
             "fees_enabled": int(bool(market.get("feesEnabled"))),
+            "fee_rate": fee_rate,
+            "fee_type": market.get("feeType"),
             "updated_at_utc": market.get("updatedAt"),
             "fetched_at_utc": fetched_at,
             "raw_json": json.dumps(market, ensure_ascii=False, separators=(",", ":")),
@@ -321,11 +402,14 @@ class Database:
         sort: str,
         limit: int,
     ) -> list[dict[str, Any]]:
-        query = """
+        query = f"""
             SELECT m.condition_id, m.question, m.slug, m.end_date_utc, m.volume,
                    m.liquidity, m.best_bid, m.best_ask, m.spread,
                    m.last_trade_price, m.restricted, m.fees_enabled,
-                   o.token_id, o.name AS outcome_name, o.current_price
+                   m.fee_rate, m.fee_type,
+                   o.token_id, o.name AS outcome_name, o.current_price,
+                   {ENTRY_COST_SQL} AS entry_cost,
+                   {ENTRY_COST_RATIO_SQL} AS entry_cost_ratio
             FROM markets m
             LEFT JOIN outcomes o
               ON o.condition_id = m.condition_id AND o.outcome_index = 0
@@ -346,7 +430,8 @@ class Database:
                           description, end_date_utc, active, closed, restricted,
                           accepting_orders, neg_risk, volume, liquidity,
                           best_bid, best_ask, spread, last_trade_price,
-                          fees_enabled, updated_at_utc, fetched_at_utc
+                          fees_enabled, fee_rate, fee_type,
+                          updated_at_utc, fetched_at_utc
                    FROM markets WHERE condition_id = ?""",
                 (condition_id,),
             ).fetchone()
@@ -363,6 +448,23 @@ class Database:
                 ).fetchall()
             ]
             return result
+
+    def latest_order_book(self, token_id: str) -> dict[str, Any] | None:
+        """直近の板スナップショットを返す。
+
+        raw_jsonをそのまま渡す。ここだけは原文が必要で、段ごとの価格と数量が
+        入っているのはraw_jsonの中だけ。呼び出し側でbook.load_bookに通す。
+        """
+        with self.connect() as connection:
+            row = connection.execute(
+                """SELECT token_id, exchange_timestamp_ms, best_bid, best_ask,
+                          spread, fetched_at_utc, raw_json
+                   FROM order_book_snapshots
+                   WHERE token_id = ?
+                   ORDER BY id DESC LIMIT 1""",
+                (token_id,),
+            ).fetchone()
+            return dict(row) if row is not None else None
 
     def token_history(
         self,
@@ -415,15 +517,20 @@ class Database:
                    WHERE token_id = ? AND range_key = ?""",
                 (token_id, range_key),
             ).fetchone()
-        if row is None:
-            return None
-        try:
-            fetched_at = datetime.fromisoformat(row["fetched_at_utc"])
-        except ValueError:
-            return None
-        if fetched_at.tzinfo is None:
-            fetched_at = fetched_at.replace(tzinfo=timezone.utc)
-        return (datetime.now(timezone.utc) - fetched_at).total_seconds()
+        return age_seconds(row["fetched_at_utc"]) if row is not None else None
+
+    def order_book_age_seconds(self, token_id: str) -> float | None:
+        """直近の板を取得してからの経過秒。一度も保存していなければNone。
+
+        raw_jsonは大きい。鮮度の判定だけのために毎回読み出さない。
+        """
+        with self.connect() as connection:
+            row = connection.execute(
+                """SELECT fetched_at_utc FROM order_book_snapshots
+                   WHERE token_id = ? ORDER BY id DESC LIMIT 1""",
+                (token_id,),
+            ).fetchone()
+        return age_seconds(row["fetched_at_utc"]) if row is not None else None
 
     def stats(self) -> dict[str, Any]:
         with self.connect() as connection:
