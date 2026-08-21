@@ -5,3 +5,4 @@ data/
 dist/
 build/
 *.spec
+.claude/settings.local.json
