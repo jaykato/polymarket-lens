@@ -8,6 +8,7 @@ from unittest.mock import Mock
 from urllib.request import urlopen
 
 from polymarket_app import __version__
+from polymarket_app.client import ApiError
 from polymarket_app.database import Database
 from polymarket_app.web import AppServer
 
@@ -32,6 +33,8 @@ class WebApiTest(unittest.TestCase):
             {"t": now - 3600 * hours_ago, "p": 0.40 + 0.01 * (12 - hours_ago)}
             for hours_ago in range(12, 0, -1)
         ]
+        # 既定では板を取れない状態にしておく。取れる場合は各テストで差し替える。
+        self.client.get_order_book.side_effect = ApiError("book unavailable")
 
         self.server = AppServer(
             ("127.0.0.1", 0),
@@ -108,3 +111,100 @@ class WebApiTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReturnsApiTest(WebApiTest):
+    """L0の口。板を保存した状態と、していない状態の両方を確かめる。"""
+
+    BOOK = {
+        "bids": [{"price": "0.50", "size": "1500"}],
+        # CLOBは降順で返す。並べ直さずに歩くと最悪価格から食う。
+        "asks": [{"price": "0.55", "size": "3000"}, {"price": "0.53", "size": "1200"}],
+        "timestamp": "1700000000000",
+    }
+
+    def _store_book(self) -> None:
+        """保存済みかつ新鮮な板を用意する。この状態では取り直しは起きない。"""
+        self.database.save_order_book(self.token_id, self.BOOK)
+
+    def test_returns_are_included_in_the_market_detail(self) -> None:
+        self._store_book()
+        detail = self.get(f"/api/markets/{self.condition_id}")
+        self.assertTrue(detail["returns"]["available"])
+        self.assertAlmostEqual(detail["returns"]["breakdown"]["best_ask"], 0.53, places=9)
+
+    def test_returns_endpoint_walks_the_book_for_the_requested_size(self) -> None:
+        self._store_book()
+        small = self.get(f"/api/returns/{self.condition_id}?side=yes&stake=100")
+        large = self.get(f"/api/returns/{self.condition_id}?side=yes&stake=1500")
+        self.assertGreater(large["breakeven"], small["breakeven"])
+        # 板の並び順に関わらず、最良の0.53から食い始める。
+        self.assertAlmostEqual(small["breakdown"]["average_fill"], 0.53, places=9)
+
+    def test_no_side_is_derived_from_the_stored_bids(self) -> None:
+        self._store_book()
+        quote = self.get(f"/api/returns/{self.condition_id}?side=no&stake=100")
+        self.assertTrue(quote["available"])
+        self.assertAlmostEqual(quote["breakdown"]["best_ask"], 0.50, places=9)
+
+    def test_market_without_a_stored_book_is_fetched_on_demand(self) -> None:
+        """同期は取得した市場ぶんの板しか保存しない。検索から入った市場では
+        表示のたびに補わないと、ほとんどの市場が値付け不能になる。"""
+        self.client.get_order_book.side_effect = None
+        self.client.get_order_book.return_value = self.BOOK
+        quote = self.get(f"/api/returns/{self.condition_id}?side=yes&stake=100")
+        self.client.get_order_book.assert_called_once_with(self.token_id)
+        self.assertTrue(quote["available"])
+        self.assertAlmostEqual(quote["breakdown"]["best_ask"], 0.53, places=9)
+
+    def test_a_fresh_book_is_not_refetched_while_the_stake_changes(self) -> None:
+        """スライダーは動かすたびにこの口を叩く。そのたびに取り直さない。"""
+        self._store_book()
+        for stake in (100, 200, 300):
+            self.get(f"/api/returns/{self.condition_id}?side=yes&stake={stake}")
+        self.client.get_order_book.assert_not_called()
+
+    def test_failed_fetch_is_reported_not_priced_and_not_retried(self) -> None:
+        for _ in range(3):
+            quote = self.get(f"/api/returns/{self.condition_id}?side=yes&stake=100")
+        self.assertFalse(quote["available"])
+        self.assertEqual(quote["reason"], "book_fetch_failed")
+        # 失敗も覚えておく。失敗する呼び出しを毎回繰り返さない。
+        self.client.get_order_book.assert_called_once_with(self.token_id)
+
+    def test_a_stale_book_is_still_used_when_the_refetch_fails(self) -> None:
+        """古い板でも、何も出せないよりは良い。取り直せなかったからといって
+        保存済みの板を捨てると、通信が落ちた瞬間に画面から数字が消える。"""
+        self.database.save_order_book(self.token_id, self.BOOK)
+        with self.database.connect() as connection:
+            connection.execute(
+                "UPDATE order_book_snapshots SET fetched_at_utc = ?",
+                ("2020-01-01T00:00:00+00:00",),
+            )
+        quote = self.get(f"/api/returns/{self.condition_id}?side=yes&stake=100")
+        self.client.get_order_book.assert_called_once_with(self.token_id)
+        self.assertTrue(quote["available"])
+        self.assertEqual(quote["captured_at_utc"], "2020-01-01T00:00:00+00:00")
+
+    def test_unreadable_stake_does_not_break_the_request(self) -> None:
+        self._store_book()
+        for query in ("stake=abc", "stake=", "stake=-40", "side=maybe", "stake=1e9999"):
+            quote = self.get(f"/api/returns/{self.condition_id}?{query}")
+            self.assertIn("side", quote)
+            self.assertIn(quote["side"], ("yes", "no"))
+
+    def test_unknown_market_is_not_found(self) -> None:
+        from urllib.error import HTTPError
+
+        with self.assertRaises(HTTPError) as raised:
+            self.get("/api/returns/does-not-exist")
+        self.assertEqual(raised.exception.code, 404)
+
+    def test_entry_cost_is_exposed_to_the_listing(self) -> None:
+        rows = self.get("/api/markets?sort=entry_cost")
+        self.assertIn("entry_cost", rows[0])
+        self.assertIn("entry_cost_ratio", rows[0])
+
+    def test_entry_cost_sort_is_offered_to_the_ui(self) -> None:
+        options = self.get("/api/options")
+        self.assertIn("entry_cost", [item["key"] for item in options["sorts"]])

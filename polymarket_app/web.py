@@ -11,10 +11,12 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from . import __version__
 from .analysis import analyze_market
+from .book import load_book
 from .client import ApiError, PolymarketClient
 from .database import Database, sort_options
 from .history import range_options, resolve_range
 from .movement import summarize_movement
+from .returns import DEFAULT_STAKE, quote_position
 from .search import MarketSearch
 
 
@@ -58,6 +60,51 @@ class AppRequestHandler(BaseHTTPRequestHandler):
         except ValueError:
             min_liquidity = 0.0
         return {"sort": query.get("sort", [""])[0], "min_liquidity": min_liquidity}
+
+    def _returns(
+        self, market: dict[str, Any], query: dict[str, list[str]]
+    ) -> dict[str, Any]:
+        """L0の実効リターンを組み立てる。
+
+        板はYESトークンぶんしか保存されていない。NOのアスクはYESのビッドの
+        裏返しなので、book側で導出する。板が無い市場では計算そのものが
+        成立しないため、その旨を返して数値は作らない。
+
+        同期が板を保存していない市場のほうが多い（検索から入った市場や、
+        同期の件数上限より後ろの市場）。ここで表示のたびに補う。取得に失敗しても
+        保存済みの板があればそれで計算する。古い板でも、何も出せないよりは良い。
+        """
+        outcomes = market.get("outcomes") or []
+        token_id = outcomes[0].get("token_id") if outcomes else None
+        snapshot = None
+        fetch_failed = False
+        if token_id:
+            try:
+                self.server.search.ensure_order_book(str(token_id))
+            except ApiError:
+                fetch_failed = True
+            snapshot = self.server.database.latest_order_book(str(token_id))
+        if snapshot is None:
+            return {
+                "available": False,
+                "reason": "book_fetch_failed" if fetch_failed else "no_snapshot",
+                "detail": (
+                    "Polymarket did not return an order book for this market just now, "
+                    "and none is stored."
+                    if fetch_failed
+                    else "No order book has been captured for this market yet. Run a sync."
+                ),
+                "side": query.get("side", ["yes"])[0],
+                "stake": float(DEFAULT_STAKE),
+            }
+        quote = quote_position(
+            market,
+            load_book(snapshot.get("raw_json")),
+            side=query.get("side", ["yes"])[0],
+            stake=query.get("stake", [str(DEFAULT_STAKE)])[0],
+        )
+        quote["captured_at_utc"] = snapshot.get("fetched_at_utc")
+        return quote
 
     def _static(self, relative_path: str) -> None:
         target = (self.server.static_dir / relative_path).resolve()
@@ -112,6 +159,16 @@ class AppRequestHandler(BaseHTTPRequestHandler):
                 }
             )
             return
+        # 投資額を変えるたびに再計算するため、リターンだけを返す口を分けておく。
+        # 計算式をブラウザ側へ複製すると、サーバと食い違ったときに気づけない。
+        if path.startswith("/api/returns/"):
+            condition_id = path.removeprefix("/api/returns/")
+            market = self.server.database.market_detail(condition_id)
+            if market is None:
+                self._json({"error": "market not found"}, HTTPStatus.NOT_FOUND)
+            else:
+                self._json(self._returns(market, query))
+            return
         if path.startswith("/api/markets/"):
             condition_id = path.removeprefix("/api/markets/")
             market = self.server.database.market_detail(condition_id)
@@ -121,6 +178,7 @@ class AppRequestHandler(BaseHTTPRequestHandler):
                 analysis = analyze_market(market)
                 analysis.pop("internal_scores", None)
                 market["analysis"] = analysis
+                market["returns"] = self._returns(market, query)
                 self._json(market)
             return
         if path.startswith("/api/history/"):
