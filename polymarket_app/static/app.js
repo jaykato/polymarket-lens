@@ -12,8 +12,18 @@ const DEFAULT_SORTS = [
   { key: "volume", label: "Volume" },
   { key: "liquidity", label: "Liquidity" },
   { key: "ending_soon", label: "Ending soon" },
-  { key: "spread", label: "Tightest price gap" }
+  { key: "spread", label: "Tightest price gap" },
+  { key: "entry_cost", label: "Lowest entry cost" }
 ];
+
+// 投資額のスライダーは対数目盛り。$10〜$20,000 を1本のつまみで扱う。
+const STAKE_MIN = 10;
+const STAKE_MAX = 20000;
+const STAKE_PRESETS = [100, 500, 1000, 5000];
+
+// 板ラダーの既定表示段数。実際の板は70段返ることもあり、約定に関係ない
+// 奥の段まで並べると詳細パネルが読めなくなる。
+const LADDER_VISIBLE = 5;
 
 const state = {
   markets: [],
@@ -21,6 +31,9 @@ const state = {
   searchSequence: 0,
   detailSequence: 0,
   listing: { sort: "volume", minLiquidity: 0, sorts: DEFAULT_SORTS },
+  // 市場を切り替えても持ち越す。同じ金額のまま一覧をたどると、
+  // 損益分岐を市場間でそのまま比較できる。
+  returns: { side: "yes", stake: 100, showAllLevels: false },
   chart: {
     tokenId: null,
     range: "1w",
@@ -41,6 +54,40 @@ const money = value => {
 const percent = value => `${(Number(value || 0) * 100).toFixed(1)}%`;
 
 const clamp01 = value => Math.max(0, Math.min(1, Number(value) || 0));
+
+const points = value =>
+  `${value >= 0 ? "+" : "−"}${Math.abs(Number(value)).toFixed(1)}pt`;
+
+const dollars = value => new Intl.NumberFormat("en-US", {
+  style: "currency", currency: "USD", maximumFractionDigits: 2
+}).format(Number(value) || 0);
+
+const shareCount = value => new Intl.NumberFormat("en-US", {
+  minimumFractionDigits: 2, maximumFractionDigits: 2
+}).format(Number(value) || 0);
+
+// 摩擦は単調なコスト。低い＝良いなので、走査しやすいよう2段階だけ色を振る。
+// 判定は表示価格に対する割合で行う。ポイント差だけだと、大穴市場の
+// 「+0.05pt だが実質2倍払っている」を安いと誤認する。
+function entryTone(ratio) {
+  if (ratio === null || ratio === undefined) return "";
+  if (ratio < 0.03) return "low";
+  if (ratio > 0.10) return "high";
+  return "";
+}
+
+function renderEntryCost(market) {
+  // ask が 1.00 以上の市場は摩擦が定義できない。差だけ見ると最安に見える。
+  if (market.entry_cost === null || market.entry_cost === undefined) {
+    return "<b>—</b><small>NO ENTRY</small>";
+  }
+  // 表示価格が0の市場では割合が出せない。ポイント差だけ示す。
+  const ratio = market.entry_cost_ratio;
+  const label = ratio === null || ratio === undefined
+    ? "ENTRY COST"
+    : `${percent(ratio)} OF PRICE`;
+  return `<b>${points(market.entry_cost * 100)}</b><small>${label}</small>`;
+}
 
 async function api(path, options = {}) {
   const response = await fetch(path, options);
@@ -67,6 +114,9 @@ function renderMarkets(markets) {
       <div class="metric">
         <b>${money(market.volume)}</b><small>VOLUME</small>
       </div>
+      <div class="metric entry ${entryTone(market.entry_cost_ratio)}">
+        ${renderEntryCost(market)}
+      </div>
     </button>
   `).join("");
   [...list.querySelectorAll(".market-row")].forEach(button => {
@@ -87,7 +137,11 @@ async function selectMarket(market) {
     </div>
   `;
   try {
-    const detail = await api(`/api/markets/${encodeURIComponent(market.condition_id)}`);
+    // 市場を跨いでも投資額とサイドを保つため、現在の指定を付けて取りに行く。
+    const detail = await api(
+      `/api/markets/${encodeURIComponent(market.condition_id)}`
+      + `?side=${state.returns.side}&stake=${state.returns.stake}`
+    );
     if (sequence !== state.detailSequence) return;
     renderDetail(detail);
     const yes = detail.outcomes[0];
@@ -147,6 +201,7 @@ function renderDetail(market) {
         <div class="gauge-labels"><span>NO</span><span>YES</span></div>
       </div>
     </section>
+    ${renderReturnsShell(market)}
     <div class="chart-wrap">
       <div class="chart-head">
         <span>YES PROBABILITY</span>
@@ -182,6 +237,273 @@ function renderDetail(market) {
   renderRangePicker();
   bindChartHover();
   drawChart();
+  bindReturns();
+  renderReturnsResult(market.returns);
+}
+
+/* ------------------------------------------------------------------ *
+ * L0 リターン計算機
+ *
+ * 操作部と結果部を分けてある。結果だけを差し替えることで、入力中の
+ * フォーカスが飛ばず、隣のcanvasチャートも作り直さずに済む。
+ * 計算そのものはサーバの returns.py だけが持つ。式をここへ複製すると、
+ * 食い違ったときに気づけない。
+ * ------------------------------------------------------------------ */
+
+function renderReturnsShell(market) {
+  const yes = market.outcomes?.[0]?.name || "Yes";
+  const no = market.outcomes?.[1]?.name || "No";
+  return `
+    <section class="returns">
+      <p class="eyebrow">RETURN CALCULATOR</p>
+      <div class="side-toggle" id="side-toggle">
+        <button type="button" data-side="yes" aria-pressed="true">
+          <strong>Buy ${escapeHtml(yes)}</strong>
+        </button>
+        <button type="button" data-side="no" aria-pressed="false">
+          <strong>Buy ${escapeHtml(no)}</strong>
+        </button>
+      </div>
+      <div class="stake-row">
+        <label class="stake-field">
+          <span>$</span>
+          <input id="stake" type="text" inputmode="decimal"
+                 value="${state.returns.stake}" aria-label="Stake in USDC">
+        </label>
+        <div class="presets" id="stake-presets">
+          ${STAKE_PRESETS.map(value => `
+            <button type="button" data-stake="${value}">
+              ${value >= 1000 ? `${value / 1000}k` : value}
+            </button>`).join("")}
+        </div>
+      </div>
+      <input id="stake-range" type="range" min="0" max="1000"
+             value="${stakeToSlider(state.returns.stake)}" aria-label="Stake slider">
+      <div class="range-scale"><span>$${STAKE_MIN}</span><span>$${STAKE_MAX.toLocaleString("en-US")}</span></div>
+      <div id="returns-result" aria-live="polite"></div>
+    </section>
+  `;
+}
+
+function sliderToStake(position) {
+  const low = Math.log10(STAKE_MIN);
+  const high = Math.log10(STAKE_MAX);
+  const raw = Math.pow(10, low + (high - low) * (position / 1000));
+  return raw < 100 ? Math.round(raw) : Math.round(raw / 10) * 10;
+}
+
+function stakeToSlider(value) {
+  const low = Math.log10(STAKE_MIN);
+  const high = Math.log10(STAKE_MAX);
+  const bounded = Math.min(STAKE_MAX, Math.max(STAKE_MIN, Number(value) || STAKE_MIN));
+  return Math.round(((Math.log10(bounded) - low) / (high - low)) * 1000);
+}
+
+function setStake(value, syncField = true) {
+  // 数値にならない入力は下限へ寄せる。推測して勝手な額を入れない。
+  const parsed = Number.parseFloat(String(value).replace(/[^0-9.]/g, ""));
+  state.returns.stake = Number.isFinite(parsed)
+    ? Math.min(STAKE_MAX, Math.max(STAKE_MIN, parsed))
+    : STAKE_MIN;
+  const field = document.querySelector("#stake");
+  const slider = document.querySelector("#stake-range");
+  if (field && syncField) field.value = String(state.returns.stake);
+  if (slider) slider.value = String(stakeToSlider(state.returns.stake));
+  loadReturns();
+}
+
+let returnsTimer;
+function loadReturns() {
+  clearTimeout(returnsTimer);
+  const container = document.querySelector("#returns-result");
+  if (container) container.classList.add("pending");
+  // スライダーを掴んだまま動かすと入力が連続する。まとめてから1回だけ呼ぶ。
+  returnsTimer = setTimeout(async () => {
+    const sequence = state.detailSequence;
+    const conditionId = state.active;
+    if (!conditionId) return;
+    try {
+      const quote = await api(
+        `/api/returns/${encodeURIComponent(conditionId)}`
+        + `?side=${state.returns.side}&stake=${state.returns.stake}`
+      );
+      if (sequence !== state.detailSequence) return;
+      renderReturnsResult(quote);
+    } catch (error) {
+      if (sequence !== state.detailSequence) return;
+      renderReturnsResult({ available: false, reason: "error", detail: error.message });
+    }
+  }, 90);
+}
+
+function bindReturns() {
+  const toggle = document.querySelector("#side-toggle");
+  if (!toggle) return;
+  toggle.addEventListener("click", event => {
+    const button = event.target.closest("button[data-side]");
+    if (!button) return;
+    state.returns.side = button.dataset.side;
+    [...toggle.querySelectorAll("button")].forEach(item => {
+      item.setAttribute("aria-pressed", String(item.dataset.side === state.returns.side));
+    });
+    loadReturns();
+  });
+  document.querySelector("#stake-presets").addEventListener("click", event => {
+    const button = event.target.closest("button[data-stake]");
+    if (button) setStake(button.dataset.stake);
+  });
+  // 入力中は値を書き戻さない。書き戻すとカーソルが末尾へ飛ぶ。
+  document.querySelector("#stake").addEventListener("input", event => {
+    setStake(event.target.value, false);
+  });
+  document.querySelector("#stake").addEventListener("blur", () => {
+    document.querySelector("#stake").value = String(state.returns.stake);
+  });
+  document.querySelector("#stake-range").addEventListener("input", event => {
+    setStake(sliderToStake(Number(event.target.value)));
+  });
+}
+
+function renderReturnsResult(quote) {
+  const container = document.querySelector("#returns-result");
+  if (!container) return;
+  container.classList.remove("pending");
+
+  if (!quote || !quote.available) {
+    container.innerHTML = `
+      <div class="returns-unavailable">
+        <strong>Cannot be priced</strong>
+        <p>${escapeHtml(quote?.detail || "No order book is stored for this market.")}</p>
+      </div>`;
+    return;
+  }
+
+  const gap = quote.gap_points;
+  const quoted = clamp01(quote.quoted) * 100;
+  const extra = Math.max(0, Math.min(100 - quoted, gap === null ? 0 : gap));
+
+  container.innerHTML = `
+    <div class="breakeven">
+      <span class="breakeven-label">BREAK-EVEN PROBABILITY</span>
+      <b class="breakeven-value">${(quote.breakeven * 100).toFixed(1)}%</b>
+      <p class="breakeven-caption">
+        Below this the position loses money on average. This is what you must
+        believe — not the quoted price.
+      </p>
+    </div>
+    ${gap === null ? "" : `
+      <div class="gap">
+        <div class="gap-head"><span>QUOTED VS REQUIRED</span><b>${points(gap)}</b></div>
+        <div class="gap-track">
+          <i class="gap-shown" style="width:${quoted}%"></i>
+          <i class="gap-extra" style="left:${quoted}%;width:${extra}%"></i>
+        </div>
+        <div class="gap-legend">
+          <span>quoted ${(quote.quoted * 100).toFixed(1)}%</span>
+          <span>required <b>${(quote.breakeven * 100).toFixed(1)}%</b></span>
+        </div>
+      </div>`}
+    <div class="scenarios">
+      <div class="scenario win">
+        <span class="label">IF IT RESOLVES THIS WAY</span>
+        <strong>+${quote.win.percent.toFixed(1)}%</strong>
+        <span class="sub">${dollars(quote.stake)} → ${dollars(quote.win.payout)}</span>
+      </div>
+      <div class="scenario lose">
+        <span class="label">IF IT DOES NOT</span>
+        <strong>−100%</strong>
+        <span class="sub">${dollars(quote.stake)} → $0.00</span>
+      </div>
+    </div>
+    <table class="breakdown">
+      <tbody>
+        <tr><th>Quoted probability<small>what the market displays</small></th>
+            <td>${quote.breakdown.quoted === null ? "—" : quote.breakdown.quoted.toFixed(4)}</td></tr>
+        <tr><th>Best ask<small>the price you can actually hit</small></th>
+            <td>${quote.breakdown.best_ask.toFixed(4)}</td></tr>
+        <tr><th>Average fill<small>after walking the book for this size</small></th>
+            <td>${quote.breakdown.average_fill.toFixed(4)}</td></tr>
+        <tr><th>Taker fee<small>${quote.fee_rate > 0
+              ? `${(quote.fee_rate * 100).toFixed(0)}% × p × (1−p) · ${escapeHtml(quote.fee_type || "")}`
+              : "this market charges no taker fee"}</small></th>
+            <td class="add">${quote.breakdown.average_fee.toFixed(4)}</td></tr>
+        <tr class="total"><th>Effective cost</th>
+            <td>${quote.breakdown.effective_cost.toFixed(4)}</td></tr>
+      </tbody>
+    </table>
+    ${renderLadder(quote)}
+    <div class="return-facts">
+      <div class="fact"><span class="label">SHARES</span>
+        <strong>${shareCount(quote.shares)}</strong>
+        <span class="sub">pays $1.00 each on resolution</span></div>
+      <div class="fact"><span class="label">CAPITAL LOCKED</span>
+        <strong>${quote.days_to_resolution === null ? "—" : `${quote.days_to_resolution} days`}</strong>
+        <span class="sub">${quote.days_to_resolution === null
+          ? "end date has passed or is unknown" : "until resolution"}</span></div>
+      ${quote.annualised_percent === null ? "" : `
+        <div class="fact wide"><span class="label">ANNUALISED · SIMPLE</span>
+          <strong>+${quote.annualised_percent.toFixed(0)}%</strong>
+          <span class="sub">assumes the same edge is available again on redeployment,
+            which is not guaranteed</span></div>`}
+    </div>
+    <p class="returns-note">${escapeHtml(quote.note)}</p>
+  `;
+  bindLadderToggle(quote);
+}
+
+function renderLadder(quote) {
+  const levels = quote.levels || [];
+  const touched = levels.filter(level => level.taken > 0).length;
+  // 消化した段＋その先2段までを既定で見せる。判断に効くのは「いま食っている段」と
+  // 「次にいくら悪くなるか」だけ。
+  const cut = state.returns.showAllLevels
+    ? levels.length
+    : Math.min(levels.length, Math.max(LADDER_VISIBLE, touched + 2));
+  const hidden = levels.slice(cut);
+  // 気配の刻みは市場ごとに違う（実測 0.01 と 0.001）。0.53×100 が
+  // 53.000000000000007 になるため、剰余では判定できない。丸めて往復させる。
+  const digits = levels.some(
+    level => Math.abs(level.price - Number(level.price.toFixed(2))) > 1e-9
+  ) ? 3 : 2;
+
+  const rows = levels.slice(0, cut).map(level => {
+    const ratio = level.size > 0 ? level.taken / level.size : 0;
+    const used = level.taken > 0;
+    return `
+      <div class="ladder-row ${used ? "used" : ""}">
+        <i class="ladder-fill" style="width:${(ratio * 100).toFixed(2)}%"></i>
+        <b>${level.price.toFixed(digits)}</b>
+        <span class="depth">${shareCount(level.size)} available</span>
+        <span class="taken">${used ? shareCount(level.taken) : "—"}</span>
+      </div>`;
+  }).join("");
+
+  // 畳んだ段の存在は必ず示す。板が浅いのか、単に隠しているのかを取り違えさせない。
+  let toggle = "";
+  if (hidden.length) {
+    const deeper = hidden.reduce((sum, level) => sum + level.size, 0);
+    toggle = `<button class="ladder-toggle" id="ladder-toggle" type="button">
+      ▾ ${hidden.length} deeper level${hidden.length === 1 ? "" : "s"} · ${shareCount(deeper)} more shares
+    </button>`;
+  } else if (state.returns.showAllLevels && levels.length > LADDER_VISIBLE) {
+    toggle = `<button class="ladder-toggle" id="ladder-toggle" type="button">▴ Show fewer levels</button>`;
+  }
+
+  const note = quote.book_exhausted
+    ? `<p class="ladder-note warn">Book exhausted. ${dollars(quote.unfilled)} of the stake could not be filled at any stored level.</p>`
+    : `<p class="ladder-note">Filled across ${touched} price level${touched === 1 ? "" : "s"}. Larger sizes walk deeper and raise the break-even.</p>`;
+
+  return `<div class="ladder-wrap"><span class="ladder-title">ORDER BOOK CONSUMED</span>
+    <div class="ladder">${rows}</div>${toggle}${note}</div>`;
+}
+
+function bindLadderToggle(quote) {
+  const toggle = document.querySelector("#ladder-toggle");
+  if (!toggle) return;
+  toggle.addEventListener("click", () => {
+    state.returns.showAllLevels = !state.returns.showAllLevels;
+    renderReturnsResult(quote);
+  });
 }
 
 function toneIcon(tone) {

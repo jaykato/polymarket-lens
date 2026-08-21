@@ -74,15 +74,18 @@ h2 { margin: 0; font-size: 28px; letter-spacing: -.04em; }
    viewportのmin-heightと右パネルだけで決まる。 */
 .list-viewport { position: relative; flex: 1; min-height: 260px; }
 .market-list { position: absolute; inset: 0; display: grid; align-content: start; gap: 8px; overflow: auto; padding-right: 4px; }
-.market-row { width: 100%; padding: 18px; display: grid; grid-template-columns: 1fr 90px 90px; gap: 14px; text-align: left; border: 1px solid var(--line); background: transparent; cursor: pointer; transition: .15s ease; }
+.market-row { width: 100%; padding: 18px; display: grid; grid-template-columns: 1fr 76px 76px 94px; gap: 12px; text-align: left; border: 1px solid var(--line); background: transparent; cursor: pointer; transition: .15s ease; }
 .market-row:hover, .market-row.active { transform: translateX(4px); border-color: var(--blue); background: #f6f8ff; }
 .market-row h3 { margin: 0 0 9px; font-size: 15px; line-height: 1.35; }
 .meta { color: var(--muted); font: 11px/1.4 monospace; }
-.metric { align-self: center; }
+.metric { align-self: center; text-align: right; }
 .metric b, .metric small { display: block; }
-.metric b { font-size: 18px; }
-.metric small { margin-top: 4px; color: var(--muted); font: 10px monospace; }
+.metric b { font-size: 17px; }
+.metric small { margin-top: 4px; color: var(--muted); font: 9px monospace; letter-spacing: .04em; }
 .probability { color: var(--blue); }
+/* 摩擦は単調なコスト。低い＝良いので、走査しやすいよう2段階だけ色を振る。 */
+.metric.entry.low b { color: #2f8f5b; }
+.metric.entry.high b { color: #c43b4d; }
 
 .detail-panel { position: relative; padding: 30px; background: #111722; color: white; overflow: hidden; }
 .placeholder { height: 100%; display: grid; place-content: center; text-align: center; color: #b4bdca; }
@@ -202,3 +205,93 @@ canvas { display: block; width: 100%; height: 230px; }
   .viewport-guard-dialog h2 { margin: 0 0 10px; font-size: 20px; letter-spacing: -.02em; }
   .viewport-guard-dialog p { margin: 0; color: #cfd4dd; font-size: 14px; line-height: 1.6; }
 }
+
+/* ---------- L0 リターン計算機 ---------- */
+/* 詳細パネルは360〜500pxしかないため、すべて1列に積む。 */
+.returns { margin-top: 28px; }
+
+.side-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
+.side-toggle button { padding: 12px 14px; text-align: left; cursor: pointer; border: 1px solid #3a4655; background: #1a2230; color: white; font: inherit; transition: .15s ease; }
+.side-toggle button:hover { border-color: var(--cyan); }
+.side-toggle button strong { display: block; font-size: 14px; letter-spacing: -.02em; }
+.side-toggle button[aria-pressed="true"] { border-color: var(--lime); background: #212c1c; }
+.side-toggle button[aria-pressed="true"] strong { color: var(--lime); }
+.side-toggle button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
+.stake-row { display: flex; align-items: center; gap: 8px; margin: 10px 0; }
+.stake-field { flex: 1; display: flex; align-items: center; gap: 7px; padding: 10px 12px; background: #1a2230; border: 1px solid #3a4655; }
+.stake-field:focus-within { border-color: var(--cyan); }
+.stake-field span { color: #8996a8; font: 700 14px monospace; }
+.stake-field input { width: 100%; border: 0; outline: 0; background: transparent; color: white; font: 700 17px/1.2 Inter, "Segoe UI", Arial, sans-serif; letter-spacing: -.02em; }
+.presets { display: flex; gap: 5px; }
+.presets button { padding: 8px 9px; cursor: pointer; border: 1px solid #3a4655; background: transparent; color: #8996a8; font: 10px monospace; transition: .15s ease; }
+.presets button:hover { border-color: var(--cyan); color: var(--cyan); }
+.presets button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 1px; }
+.returns input[type=range] { width: 100%; margin: 0; accent-color: var(--lime); cursor: pointer; }
+.range-scale { display: flex; justify-content: space-between; margin-top: 5px; color: #8996a8; font: 9px monospace; }
+
+/* 取得中は薄くするだけ。数字を消すと、動かすたびに画面がちらつく。 */
+#returns-result.pending { opacity: .55; }
+
+.breakeven { padding: 20px 0 18px; margin-top: 18px; border-top: 1px solid #2b3546; border-bottom: 1px solid #2b3546; }
+.breakeven-label { display: block; color: var(--cyan); font: 800 11px/1 monospace; letter-spacing: .16em; }
+.breakeven-value { display: block; margin-top: 12px; color: var(--lime); font-size: clamp(48px, 8vw, 68px); font-weight: 800; line-height: .84; letter-spacing: -.06em; }
+.breakeven-caption { margin: 12px 0 0; color: #abb5c4; font-size: 12px; line-height: 1.55; }
+
+.gap { margin: 18px 0; }
+.gap-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; color: #8996a8; font: 9px monospace; letter-spacing: .12em; }
+.gap-head b { color: var(--cyan); font-size: 12px; letter-spacing: 0; }
+.gap-track { position: relative; height: 9px; background: #1a2230; }
+.gap-track i { position: absolute; top: 0; bottom: 0; display: block; }
+.gap-shown { left: 0; background: #46536a; }
+.gap-extra { background: var(--lime); }
+.gap-legend { display: flex; justify-content: space-between; margin-top: 7px; color: #8996a8; font: 10px monospace; }
+.gap-legend b { color: var(--lime); }
+
+.scenarios { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 18px; }
+.scenario { padding: 15px; background: #1a2230; }
+.scenario .label { display: block; color: #8996a8; font: 9px monospace; letter-spacing: .1em; }
+.scenario strong { display: block; margin-top: 9px; font-size: 22px; letter-spacing: -.04em; }
+.scenario .sub { display: block; margin-top: 4px; color: #abb5c4; font: 10px monospace; }
+.scenario.win strong { color: var(--lime); }
+.scenario.lose strong { color: #ff8095; }
+
+.breakdown { width: 100%; border-collapse: collapse; }
+.breakdown tr { border-bottom: 1px solid #2b3546; }
+.breakdown tr:last-child { border-bottom: 0; }
+.breakdown tr.total { border-top: 2px solid var(--lime); }
+.breakdown th { padding: 9px 0; text-align: left; font: 400 12px/1.4 Inter, "Segoe UI", Arial, sans-serif; color: #abb5c4; }
+.breakdown th small { display: block; margin-top: 2px; font: 9px monospace; color: #8996a8; }
+.breakdown td { padding: 9px 0; text-align: right; font: 700 13px monospace; white-space: nowrap; }
+.breakdown tr.total th { color: white; font-weight: 700; }
+.breakdown tr.total td { font-size: 16px; color: var(--lime); }
+.breakdown td.add::before { content: "+ "; color: #8996a8; font-weight: 400; }
+
+.ladder-wrap { margin-top: 20px; }
+.ladder-title { display: block; margin-bottom: 10px; color: #8996a8; font: 800 9px/1 monospace; letter-spacing: .16em; }
+.ladder { display: grid; gap: 3px; }
+.ladder-row { position: relative; display: grid; grid-template-columns: 52px 1fr 78px; align-items: center; gap: 10px; padding: 8px 9px; border: 1px solid #2b3546; font: 11px monospace; overflow: hidden; }
+.ladder-fill { position: absolute; inset: 0 auto 0 0; display: block; background: rgba(217, 255, 102, .13); }
+.ladder-row > b, .ladder-row > span { position: relative; }
+.ladder-row b { font-size: 12px; }
+.ladder-row .depth { color: #8996a8; }
+.ladder-row .taken { text-align: right; color: #8996a8; }
+.ladder-row.used { border-color: rgba(217, 255, 102, .4); }
+.ladder-row.used .taken { color: var(--lime); font-weight: 700; }
+.ladder-toggle { width: 100%; margin-top: 4px; padding: 8px; cursor: pointer; border: 1px dashed #3a4655; background: transparent; color: #8996a8; font: 10px monospace; letter-spacing: .04em; transition: .15s ease; }
+.ladder-toggle:hover { border-color: var(--cyan); color: var(--cyan); }
+.ladder-toggle:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.ladder-note { margin: 9px 0 0; color: #8996a8; font: 10px/1.5 monospace; }
+.ladder-note.warn { color: #ffc0a8; }
+
+.return-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 18px; }
+.return-facts .fact { padding: 14px 15px; background: #1a2230; }
+.return-facts .label { display: block; color: #8996a8; font: 9px monospace; letter-spacing: .1em; }
+.return-facts strong { display: block; margin-top: 7px; font-size: 17px; letter-spacing: -.03em; }
+.return-facts .sub { display: block; margin-top: 4px; color: #7f8b9c; font: 9px/1.4 monospace; }
+.return-facts .wide { grid-column: 1 / -1; }
+
+.returns-note { margin: 16px 0 0; padding-top: 14px; border-top: 1px solid #2b3546; color: #7f8b9c; font: 10px/1.6 monospace; }
+.returns-unavailable { margin-top: 18px; padding: 16px; border: 1px solid #3a4655; background: #1a2230; }
+.returns-unavailable strong { display: block; font-size: 14px; }
+.returns-unavailable p { margin: 6px 0 0; color: #abb5c4; font-size: 12px; line-height: 1.5; }
