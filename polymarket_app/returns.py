@@ -122,6 +122,7 @@ def quote_position(
     side: str = "yes",
     stake: Any = DEFAULT_STAKE,
     now: datetime | None = None,
+    book_side: str | None = None,
 ) -> dict[str, Any]:
     """指定サイド・指定金額で買った場合の実効リターンを組み立てる。
 
@@ -130,7 +131,9 @@ def quote_position(
     side = "no" if str(side).lower() == "no" else "yes"
     amount = clamp_stake(stake)
     rate = _decimal(market.get("fee_rate")) or Decimal("0")
-    levels = ask_levels(book, side)
+    # NOトークン自身の板を渡された場合は、YESと同じくasksを食う。
+    # 実板が無い旧データだけはbook_side="no"でYES板のbidsを反転する。
+    levels = ask_levels(book, book_side or side)
 
     if not levels:
         return _unavailable(

@@ -445,6 +445,10 @@ function renderReturnsResult(quote) {
           <strong>+${quote.annualised_percent.toFixed(0)}%</strong>
           <span class="sub">assumes the same edge is available again on redeployment,
             which is not guaranteed</span></div>`}
+      <div class="fact wide"><span class="label">ORDER BOOK CAPTURED</span>
+        <strong>${quote.captured_at_utc ? escapeHtml(formatTimestamp(quote.captured_at_utc)) : "—"}</strong>
+        <span class="sub">${quote.book_age_seconds === null || quote.book_age_seconds === undefined
+          ? "capture age unavailable" : `${Math.round(quote.book_age_seconds)} seconds old`}</span></div>
     </div>
     <p class="returns-note">${escapeHtml(quote.note)}</p>
   `;
@@ -899,6 +903,11 @@ function formatTooltipTime(seconds) {
 function formatDate(value) {
   if (!value) return "UNKNOWN";
   return new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }).toUpperCase();
+}
+
+function formatTimestamp(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
 }
 
 function escapeHtml(value) {

@@ -280,6 +280,46 @@ class FeeAndEntryCostTest(unittest.TestCase):
         self.database.save_order_book("f-yes", {"bids": [], "asks": [{"price": "0.61", "size": "1"}]})
         self.assertEqual(self.database.latest_order_book("f-yes")["best_ask"], "0.61")
 
+    def test_order_book_snapshots_are_pruned_per_token(self) -> None:
+        limited = Database(self.path, max_order_book_snapshots_per_token=2)
+        limited.initialize()
+        limited.upsert_market(self._market("prune", "0.53", "0.515"))
+        for ask in ("0.51", "0.52", "0.53"):
+            limited.save_order_book("prune-yes", {"bids": [], "asks": [{"price": ask, "size": "1"}]})
+        with limited.connect() as connection:
+            count = connection.execute(
+                "SELECT COUNT(*) FROM order_book_snapshots WHERE token_id = ?", ("prune-yes",)
+            ).fetchone()[0]
+        self.assertEqual(count, 2)
+        self.assertEqual(limited.latest_order_book("prune-yes")["best_ask"], "0.53")
+
+    def test_closed_market_with_a_final_price_records_a_resolution(self) -> None:
+        market = self._market("resolved", "0.99", "1.0", closed=True, active=False)
+        self.database.upsert_market(market)
+        with self.database.connect() as connection:
+            row = connection.execute(
+                "SELECT outcome_index FROM market_resolutions WHERE condition_id = ?", ("resolved",)
+            ).fetchone()
+        self.assertEqual(row["outcome_index"], 0)
+
+    def test_resolved_observation_uses_the_last_price_before_the_horizon(self) -> None:
+        market = self._market(
+            "timed", "0.99", "1.0", closed=True, active=False,
+            endDate="2024-01-02T00:00:00Z",
+        )
+        self.database.upsert_market(market)
+        self.database.save_price_history(
+            "timed-yes",
+            [
+                {"t": 1703980800, "p": "0.40"},  # 48 hours before
+                {"t": 1704067200, "p": "0.60"},  # exactly 24 hours before
+                {"t": 1704110400, "p": "0.90"},  # 12 hours before: must not leak in
+            ],
+        )
+        observations = self.database.resolved_observations(24 * 3600)
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(observations[0]["price"], "0.60")
+
     def test_missing_snapshot_returns_none(self) -> None:
         self.assertIsNone(self.database.latest_order_book("nothing"))
 

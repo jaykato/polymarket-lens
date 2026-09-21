@@ -26,6 +26,7 @@ class CollectorTest(unittest.TestCase):
         result = Collector(self.client, self.database).sync(market_limit=3)
         self.assertEqual(self.client.get_price_history.call_count, 3)
         self.assertEqual(result.histories, 3)
+        self.assertEqual(self.client.get_order_book.call_count, 6)
 
     def test_positive_history_limit_is_respected(self) -> None:
         result = Collector(self.client, self.database).sync(
@@ -33,6 +34,13 @@ class CollectorTest(unittest.TestCase):
         )
         self.assertEqual(self.client.get_price_history.call_count, 1)
         self.assertEqual(result.histories, 1)
+
+    def test_resolved_sync_uses_full_history_for_each_closed_market(self) -> None:
+        self.client.get_closed_markets.return_value = [market(1), market(2)]
+        result = Collector(self.client, self.database).sync_resolved(market_limit=2)
+        self.assertEqual(result.markets, 2)
+        self.assertEqual(result.histories, 2)
+        self.client.get_price_history.assert_any_call("token-1-yes", interval="max", fidelity=720)
 
 
 if __name__ == "__main__":

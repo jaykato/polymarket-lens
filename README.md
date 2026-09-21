@@ -4,7 +4,7 @@ A read-only desktop viewer for public Polymarket data. It runs entirely on your
 own machine, stores what it fetches in a local SQLite file, and never touches a
 wallet, a private key, or an API key.
 
-**Version 0.6.1** · Tested on Windows 11 · Python 3.10+ · no dependencies
+**Version 0.7.0** · Tested on Windows 11 · Python 3.10+ · no core dependencies
 
 ---
 
@@ -29,7 +29,8 @@ forecast, no signal, and no recommendation anywhere in the code.
 
 - Not a trading client. It cannot place, cancel, or sign anything.
 - Not connected to a wallet. There is no key handling of any kind.
-- Not a predictor. Every number shown is an observation, not an estimate.
+- Not a trading signal. Optional forecasts are research outputs, not
+  recommendations.
 - Not affiliated with Polymarket.
 
 ## Features
@@ -37,7 +38,7 @@ forecast, no signal, and no recommendation anywhere in the code.
 **Market list**
 
 - Search across question text, description, and slug
-- Sort by volume, liquidity, end date, or tightest spread
+- Sort by volume, liquidity, end date, tightest spread, or estimated entry cost
 - Hide thin markets below a liquidity floor
 - Falls back to Polymarket's public search when a keyword is not in the local
   database, then saves what it finds
@@ -65,13 +66,30 @@ Spread, liquidity, and cumulative volume combined into a plain-language read on
 how expensive this market is to enter and leave. This describes execution
 quality, not profitability.
 
+**Entry-cost calculator**
+
+- Walks the stored order book for a chosen YES/NO stake
+- Shows best ask, estimated average fill, fee, effective cost, and break-even
+  probability
+- Records when the order book used for the calculation was captured
+
+**Research workflow**
+
+- Sync resolved markets and assess calibration against eventual outcomes
+- Record and settle paper-only positions; no trading endpoint exists
+- Check event-level price consistency
+- Optionally run a local Chronos-2 time-series forecast after installing
+  `requirements-model.txt`
+
 ## Requirements
 
 - Python 3.10 or newer
-- No third-party packages. The entire application runs on the standard library.
+- No third-party packages for the viewer, sync, and research checks. Optional
+  Chronos-2 forecasts require `pip install -r requirements-model.txt`.
 
-There is no `pip install` step, no virtual environment, no `requirements.txt`,
-and no build tooling. Cloning and running is the whole setup.
+The core viewer has no `pip install` step, virtual environment, or build
+tooling. Install `requirements-model.txt` only when you choose to use the
+optional forecast command.
 
 **Platform**
 
@@ -107,6 +125,12 @@ would rather not use the `.bat` files.
 | `sync` | `--markets N` | Number of markets to fetch. Default 25. |
 | | `--histories N` | Cap on markets to pull history for. Default: all. |
 | `stats` | — | Stored market, outcome, and price-point counts. |
+| `sync-resolved` | `--markets N` | Fetch resolved markets for calibration. |
+| `calibrate` | `--hours-before N` | Evaluate stored probabilities against resolved outcomes. |
+| `paper-scan` | `--stake N --min-edge P` | Record paper-only candidates; never places an order. |
+| `settle-paper` | — | Settle paper positions from resolved outcomes. |
+| `consistency` | — | Inspect event-level stored-price consistency. |
+| `forecast` | `TOKEN_ID --steps N` | Optional local Chronos-2 forecast for research. |
 | `serve` | `--port N` | Listening port. Default 8765. |
 | | `--host H` | Default `127.0.0.1`, reachable only from this machine. |
 | *(all)* | `--db PATH` | Database location. Default `data/polymarket.db`. |
@@ -122,7 +146,7 @@ shows a notice instead of the layout. Phones are not supported.
 python -m unittest discover
 ```
 
-53 tests, all offline. They read saved API samples from `docs/` and never make
+133 tests, all offline. They read saved API samples from `docs/` and never make
 a network request.
 
 ## Documentation

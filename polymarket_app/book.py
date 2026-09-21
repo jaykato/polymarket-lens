@@ -96,8 +96,7 @@ def load_book(raw_json: str | None) -> dict[str, list[Level]]:
 def ask_levels(book: dict[str, list[Level]], side: str) -> list[Level]:
     """買い注文が食う側の板を、安い順で返す。
 
-    collectorはYESトークンの板しか取得しない。NOのアスクはYESのビッドの
-    裏返し（価格1−p）なので、保存済みの板だけで導出できる。
+    NOトークンの実板が無い場合だけ、YESのビッドを反転してNOアスクを導出する。
     """
     if side == "no":
         mirrored = [

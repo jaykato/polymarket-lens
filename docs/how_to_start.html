@@ -333,7 +333,7 @@
 <body>
   <main class="wrap">
     <section class="hero">
-      <div class="eyebrow">Polymarket Lens &middot; v0.6.1</div>
+      <div class="eyebrow">Polymarket Lens &middot; v0.7.0</div>
       <h1>How to use</h1>
       <p class="lead">
         A read-only local viewer for public Polymarket data. It uses no wallet,
@@ -366,8 +366,9 @@
           <tr>
             <td>Packages</td>
             <td class="muted">
-              None. The application runs on the standard library alone. There is no
-              <code>pip install</code> step and no virtual environment
+              None for the viewer and its data checks: it runs on the standard library
+              alone. The optional <code>forecast</code> command additionally needs
+              <code>pip install -r requirements-model.txt</code>
             </td>
           </tr>
           <tr>
@@ -376,7 +377,7 @@
               <strong>Tested on Windows 11 only.</strong>
               macOS and Linux are unverified. <code>start_app.bat</code> and
               <code>sync_data.bat</code> are Windows-only, so on other systems use the
-              commands in section 7
+              commands in section 8
             </td>
           </tr>
           <tr>
@@ -452,8 +453,9 @@
         <div class="tag">Sort</div>
         <h3>Sort</h3>
         <p>
-          By volume, liquidity, end date (soonest first), or spread (tightest first).
-          Volume is the default.
+          By volume, liquidity, end date (soonest first), spread (tightest first), or
+          <em>entry cost</em> (lowest first). Entry cost estimates the price impact and fee
+          for the selected default stake; volume is the default.
         </p>
       </article>
 
@@ -608,7 +610,49 @@
       </p>
     </div>
 
-    <h2 class="section-title">6. Refresh the data</h2>
+    <h2 class="section-title">6. Check the price you can actually enter at</h2>
+    <p class="lead">
+      The <strong>RETURN CALCULATOR</strong> uses the current stored order book. It is a
+      cost and break-even calculator, not a prediction or a recommendation to trade.
+    </p>
+
+    <section class="grid">
+      <article class="card">
+        <div class="tag">Side</div>
+        <h3>Choose YES or NO</h3>
+        <p>Pick the outcome you want to inspect. The calculator uses that outcome's order book when it is available; it derives NO from the YES book only when needed.</p>
+      </article>
+      <article class="card">
+        <div class="tag">Size</div>
+        <h3>Set a stake</h3>
+        <p>Change the dollar stake before interpreting the price. A larger order can consume several offers, so its average fill can be worse than the best displayed offer.</p>
+      </article>
+      <article class="card">
+        <div class="tag">Threshold</div>
+        <h3>Read the break-even probability</h3>
+        <p>This is the probability your own estimate must exceed after estimated price impact and fees. It does not say what the outcome will resolve to.</p>
+      </article>
+    </section>
+
+    <div class="table-scroll" style="margin-top:18px">
+      <table>
+        <thead><tr><th>Calculator item</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td>Displayed probability</td><td class="muted">The market's quoted probability</td></tr>
+          <tr><td>Best ask</td><td class="muted">The cheapest currently available offer in the stored book</td></tr>
+          <tr><td>Average fill</td><td class="muted">The estimated average price after walking offers for your stake</td></tr>
+          <tr><td>Fee / effective cost</td><td class="muted">Estimated taker fee and the resulting all-in entry cost</td></tr>
+          <tr><td>Order book captured</td><td class="muted">When the order book used for the calculation was fetched</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout">
+      <strong>Check the capture time before relying on a quote</strong>
+      <p>The order book changes independently of the chart. Refresh data if the displayed capture time is old, and treat an unavailable or shallow book as insufficient data rather than as a favourable price.</p>
+    </div>
+
+    <h2 class="section-title">7. Refresh the data</h2>
     <section class="grid">
       <article class="card">
         <div class="tag">Manual</div>
@@ -631,7 +675,7 @@
       </article>
     </section>
 
-    <h2 class="section-title">7. Use the command line</h2>
+    <h2 class="section-title">8. Use the command line</h2>
     <p class="lead">
       For running the application directly. Python 3.10 or newer is required. If you
       installed Python with the official Windows installer, <code>py -3</code> works too.
@@ -644,6 +688,10 @@ python -m polymarket_app init
 
 # Fetch 50 markets
 python -m polymarket_app sync --markets 50
+
+# Add resolved markets for calibration and settle any paper positions
+python -m polymarket_app sync-resolved
+python -m polymarket_app settle-paper
 
 # Show what is stored
 python -m polymarket_app stats
@@ -681,6 +729,12 @@ python -m polymarket_app serve</code></pre>
             <td class="muted">&mdash;</td>
             <td class="muted">Market, outcome, and price-point counts, and the last sync time</td>
           </tr>
+          <tr><td><code>sync-resolved</code></td><td><code>--markets N</code></td><td class="muted">Fetch resolved markets used to evaluate probability calibration</td></tr>
+          <tr><td><code>calibrate</code></td><td class="muted">&mdash;</td><td class="muted">Report how stored market probabilities compared with resolved outcomes</td></tr>
+          <tr><td><code>paper-scan</code></td><td><code>--min-edge P</code></td><td class="muted">Create paper-only candidates above a chosen estimated edge; it never places an order</td></tr>
+          <tr><td><code>settle-paper</code></td><td class="muted">&mdash;</td><td class="muted">Update paper positions from resolved markets</td></tr>
+          <tr><td><code>consistency</code></td><td class="muted">&mdash;</td><td class="muted">Check stored data for inconsistent or missing records</td></tr>
+          <tr><td><code>forecast</code></td><td><code>TOKEN_ID --steps N</code></td><td class="muted">Optional Chronos-2 time-series forecast. Install <code>requirements-model.txt</code> first; it is research only</td></tr>
           <tr>
             <td><code>serve</code></td>
             <td><code>--port N</code></td>
@@ -699,7 +753,7 @@ python -m polymarket_app serve</code></pre>
       </table>
     </div>
 
-    <h2 class="section-title">8. Troubleshooting</h2>
+    <h2 class="section-title">9. Troubleshooting</h2>
     <section class="grid">
       <article class="card">
         <div class="tag">Error</div>
@@ -769,7 +823,7 @@ python -m polymarket_app serve</code></pre>
     </div>
 
     <footer>
-      Polymarket Lens v0.6.1 &middot;
+      Polymarket Lens v0.7.0 &middot;
       <a href="https://github.com/jaykato/polymarket-lens">The project on GitHub</a> &middot;
       <a href="https://github.com/jaykato/polymarket-lens#readme">README</a> for the full
       description &middot;

@@ -51,8 +51,32 @@ class Collector:
                 book = self.client.get_order_book(token_id)
                 self.database.save_order_book(token_id, book)
                 result.order_books += 1
+                # NOはYESのビッド反転で近似せず、実トークンの板も保存する。
+                if len(token_ids) > 1:
+                    no_book = self.client.get_order_book(str(token_ids[1]))
+                    self.database.save_order_book(str(token_ids[1]), no_book)
+                    result.order_books += 1
             except ApiError as exc:
                 LOGGER.warning("市場データの一部を取得できませんでした: %s", exc)
                 result.errors += 1
             history_count += 1
+        return result
+
+    def sync_resolved(self, market_limit: int = 100) -> SyncResult:
+        """解決済み市場と全期間価格履歴を取得し、検証用の土台を作る。"""
+        result = SyncResult()
+        markets = self.client.get_closed_markets(limit=market_limit)
+        for market in markets:
+            result.outcomes += self.database.upsert_market(market)
+            result.markets += 1
+            token_ids = parse_json_array(market.get("clobTokenIds"))
+            if not token_ids:
+                continue
+            try:
+                history = self.client.get_price_history(str(token_ids[0]), interval="max", fidelity=720)
+                result.price_points += self.database.save_price_history(str(token_ids[0]), history)
+                result.histories += 1
+            except ApiError as exc:
+                LOGGER.warning("解決済み市場の履歴を取得できませんでした: %s", exc)
+                result.errors += 1
         return result

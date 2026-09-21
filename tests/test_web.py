@@ -63,6 +63,12 @@ class WebApiTest(unittest.TestCase):
         # 画面のバージョン表示はここから来る。HTMLへ焼き付けない。
         self.assertEqual(options["version"], __version__)
 
+    def test_how_to_guide_is_available_as_a_separate_page(self) -> None:
+        with urlopen(f"{self.base}/how_to_start.html", timeout=5) as response:
+            page = response.read().decode("utf-8")
+        self.assertIn("Polymarket Lens", page)
+        self.assertIn("RETURN CALCULATOR", page)
+
     def test_market_detail_omits_the_raw_response_but_keeps_the_analysis(self) -> None:
         detail = self.get(f"/api/markets/{self.condition_id}")
         self.assertNotIn("raw_json", detail)
@@ -146,6 +152,17 @@ class ReturnsApiTest(WebApiTest):
         quote = self.get(f"/api/returns/{self.condition_id}?side=no&stake=100")
         self.assertTrue(quote["available"])
         self.assertAlmostEqual(quote["breakdown"]["best_ask"], 0.50, places=9)
+
+    def test_no_side_prefers_its_own_order_book_when_available(self) -> None:
+        self._store_book()
+        no_token = json.loads(self.market["clobTokenIds"])[1]
+        self.database.save_order_book(
+            no_token,
+            {"bids": [], "asks": [{"price": "0.42", "size": "500"}]},
+        )
+        quote = self.get(f"/api/returns/{self.condition_id}?side=no&stake=100")
+        self.assertTrue(quote["available"])
+        self.assertAlmostEqual(quote["breakdown"]["best_ask"], 0.42, places=9)
 
     def test_market_without_a_stored_book_is_fetched_on_demand(self) -> None:
         """同期は取得した市場ぶんの板しか保存しない。検索から入った市場では

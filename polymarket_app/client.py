@@ -94,6 +94,28 @@ class PolymarketClient:
             return [payload]
         raise ApiError("Gamma APIのmarketsレスポンス形式が不明です")
 
+    def get_closed_markets(self, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+        """解決候補の市場を取得する。結果ラベルの妥当性はDB保存時に判定する。"""
+        payload = self._get_json(
+            self.settings.gamma_base_url,
+            "/markets",
+            {
+                "active": "false",
+                "closed": "true",
+                "limit": limit,
+                "offset": offset,
+                "order": "endDate",
+                "ascending": "false",
+            },
+        )
+        if isinstance(payload, list):
+            return payload
+        if isinstance(payload, dict) and "markets" in payload:
+            return list(payload["markets"])
+        if isinstance(payload, dict):
+            return [payload]
+        raise ApiError("Gamma APIのclosed marketsレスポンス形式が不明です")
+
     def search_public_markets(
         self, query: str, limit_per_type: int = 10
     ) -> list[dict[str, Any]]:

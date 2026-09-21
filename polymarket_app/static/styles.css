@@ -30,12 +30,15 @@ body {
   border-bottom: 1px solid var(--line);
 }
 
+.brand-tools { display: flex; align-items: center; gap: 14px; }
 .brand { display: inline-flex; align-items: baseline; gap: 7px; color: var(--ink); font-weight: 900; text-decoration: none; letter-spacing: -.04em; }
 .brand span { color: var(--blue); }
 /* バージョンはAPIから受け取る。取得できないときは空のままにして、
    古い番号を焼き付けたまま表示しない。 */
 .brand i { color: var(--muted); font: 600 11px/1 monospace; font-style: normal; letter-spacing: .04em; }
 .brand i:empty { display: none; }
+.how-to { border: 1px solid var(--ink); color: var(--ink); padding: 7px 10px; font: 700 11px/1 monospace; letter-spacing: .04em; text-decoration: none; }
+.how-to:hover, .how-to:focus-visible { background: var(--ink); color: var(--paper); outline: none; }
 .status { font: 700 11px/1 monospace; letter-spacing: .12em; }
 .status i { display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: #36c887; }
 

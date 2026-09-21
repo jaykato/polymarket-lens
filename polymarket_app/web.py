@@ -31,6 +31,7 @@ class AppServer(ThreadingHTTPServer):
         self.database = database
         self.search = MarketSearch(database, client)
         self.static_dir = static_dir.resolve()
+        self.guide_path = self.static_dir.parent.parent / "docs" / "how_to_start.html"
         super().__init__(address, AppRequestHandler)
 
 
@@ -66,16 +67,17 @@ class AppRequestHandler(BaseHTTPRequestHandler):
     ) -> dict[str, Any]:
         """L0の実効リターンを組み立てる。
 
-        板はYESトークンぶんしか保存されていない。NOのアスクはYESのビッドの
-        裏返しなので、book側で導出する。板が無い市場では計算そのものが
-        成立しないため、その旨を返して数値は作らない。
+        YES/NOそれぞれの実トークン板を優先する。旧データなどでNO板が無い場合だけ、
+        YESのビッド反転をフォールバックとして使う。
 
         同期が板を保存していない市場のほうが多い（検索から入った市場や、
         同期の件数上限より後ろの市場）。ここで表示のたびに補う。取得に失敗しても
         保存済みの板があればそれで計算する。古い板でも、何も出せないよりは良い。
         """
         outcomes = market.get("outcomes") or []
-        token_id = outcomes[0].get("token_id") if outcomes else None
+        side = "no" if query.get("side", ["yes"])[0].lower() == "no" else "yes"
+        index = 1 if side == "no" else 0
+        token_id = outcomes[index].get("token_id") if len(outcomes) > index else None
         snapshot = None
         fetch_failed = False
         if token_id:
@@ -84,6 +86,15 @@ class AppRequestHandler(BaseHTTPRequestHandler):
             except ApiError:
                 fetch_failed = True
             snapshot = self.server.database.latest_order_book(str(token_id))
+        # 既存DBにはYES板だけがある。同期後に実NO板が入るまでの互換処理。
+        book_side = "yes"
+        if snapshot is None and side == "no" and outcomes:
+            yes_token_id = outcomes[0].get("token_id")
+            if yes_token_id:
+                snapshot = self.server.database.latest_order_book(str(yes_token_id))
+                if snapshot is not None:
+                    token_id = yes_token_id
+                    book_side = "no"
         if snapshot is None:
             return {
                 "available": False,
@@ -94,16 +105,18 @@ class AppRequestHandler(BaseHTTPRequestHandler):
                     if fetch_failed
                     else "No order book has been captured for this market yet. Run a sync."
                 ),
-                "side": query.get("side", ["yes"])[0],
+                "side": side,
                 "stake": float(DEFAULT_STAKE),
             }
         quote = quote_position(
             market,
             load_book(snapshot.get("raw_json")),
-            side=query.get("side", ["yes"])[0],
+            side=side,
             stake=query.get("stake", [str(DEFAULT_STAKE)])[0],
+            book_side=book_side,
         )
         quote["captured_at_utc"] = snapshot.get("fetched_at_utc")
+        quote["book_age_seconds"] = self.server.database.order_book_age_seconds(str(token_id))
         return quote
 
     def _static(self, relative_path: str) -> None:
@@ -123,10 +136,28 @@ class AppRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _guide(self) -> None:
+        """同梱の利用ガイドだけを、UIとは別の読み取り専用ページとして公開する。"""
+        target = self.server.guide_path
+        if not target.is_file():
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        body = target.read_bytes()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         path = unquote(parsed.path)
         query = parse_qs(parsed.query)
+
+        if path == "/how_to_start.html":
+            self._guide()
+            return
 
         if path == "/api/stats":
             self._json(self.server.database.stats())

@@ -15,6 +15,8 @@ class Settings:
     request_interval_seconds: float = 0.25
     request_timeout_seconds: float = 20.0
     max_retries: int = 3
+    # 閲覧のたびに板を保存してもDBが無制限に増えないよう、各トークンに残す件数。
+    max_order_book_snapshots_per_token: int = 120
     user_agent: str = "polymarket-readonly-analysis/0.1"
 
 

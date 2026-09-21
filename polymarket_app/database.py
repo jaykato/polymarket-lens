@@ -80,10 +80,51 @@ CREATE TABLE IF NOT EXISTS history_fetches (
     PRIMARY KEY(token_id, range_key)
 );
 
+CREATE TABLE IF NOT EXISTS market_resolutions (
+    condition_id TEXT PRIMARY KEY REFERENCES markets(condition_id) ON DELETE CASCADE,
+    outcome_index INTEGER NOT NULL,
+    resolved_at_utc TEXT,
+    recorded_at_utc TEXT NOT NULL,
+    raw_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS paper_positions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    condition_id TEXT NOT NULL REFERENCES markets(condition_id) ON DELETE CASCADE,
+    token_id TEXT NOT NULL REFERENCES outcomes(token_id) ON DELETE CASCADE,
+    side_index INTEGER NOT NULL,
+    model_name TEXT NOT NULL,
+    observed_at_utc TEXT NOT NULL,
+    predicted_probability TEXT NOT NULL,
+    entry_cost TEXT NOT NULL,
+    shares TEXT NOT NULL,
+    stake TEXT NOT NULL,
+    edge TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    settled_at_utc TEXT,
+    payout TEXT,
+    profit TEXT,
+    UNIQUE(condition_id, token_id, model_name, observed_at_utc)
+);
+
+CREATE TABLE IF NOT EXISTS model_forecasts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_id TEXT NOT NULL REFERENCES outcomes(token_id) ON DELETE CASCADE,
+    model_id TEXT NOT NULL,
+    observed_at_utc TEXT NOT NULL,
+    interval_seconds INTEGER NOT NULL,
+    context_points INTEGER NOT NULL,
+    prediction_length INTEGER NOT NULL,
+    raw_json TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_markets_volume ON markets(volume);
 CREATE INDEX IF NOT EXISTS idx_outcomes_condition ON outcomes(condition_id);
 CREATE INDEX IF NOT EXISTS idx_price_history_token_time
     ON price_history(token_id, timestamp_utc);
+CREATE INDEX IF NOT EXISTS idx_books_token_id ON order_book_snapshots(token_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_paper_positions_status ON paper_positions(status, condition_id);
+CREATE INDEX IF NOT EXISTS idx_model_forecasts_token ON model_forecasts(token_id, id DESC);
 """
 
 
@@ -182,8 +223,9 @@ def sort_options() -> list[dict[str, str]]:
 
 
 class Database:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, max_order_book_snapshots_per_token: int = 120) -> None:
         self.path = path
+        self.max_order_book_snapshots_per_token = max(1, max_order_book_snapshots_per_token)
         self._local = threading.local()
 
     @contextmanager
@@ -303,7 +345,41 @@ class Database:
                          current_price=excluded.current_price""",
                     (str(token_id), condition_id, index, name, price),
                 )
+            resolution_index = self._resolved_outcome_index(market, prices)
+            if resolution_index is not None:
+                connection.execute(
+                    """INSERT INTO market_resolutions
+                       (condition_id, outcome_index, resolved_at_utc, recorded_at_utc, raw_json)
+                       VALUES (?, ?, ?, ?, ?)
+                       ON CONFLICT(condition_id) DO UPDATE SET
+                         outcome_index=excluded.outcome_index,
+                         resolved_at_utc=excluded.resolved_at_utc,
+                         recorded_at_utc=excluded.recorded_at_utc,
+                         raw_json=excluded.raw_json""",
+                    (
+                        condition_id,
+                        resolution_index,
+                        market.get("endDate"),
+                        fetched_at,
+                        json.dumps(market, ensure_ascii=False, separators=(",", ":")),
+                    ),
+                )
         return len(token_ids)
+
+    @staticmethod
+    def _resolved_outcome_index(market: dict[str, Any], prices: list[Any]) -> int | None:
+        """確定済みの二値市場だけを評価ラベルにする。
+
+        closedだけではvoidや決済待ちも混ざる。結果価格が1/0に十分近い場合にだけ
+        ラベルを作り、曖昧な市場をキャリブレーションへ混ぜない。
+        """
+        if not market.get("closed"):
+            return None
+        parsed = [decimal_text(price) for price in prices]
+        for index, price in enumerate(parsed):
+            if price is not None and Decimal(price) >= Decimal("0.999"):
+                return index
+        return None
 
     def save_price_history(self, token_id: str, history: list[dict[str, Any]]) -> int:
         fetched_at = utc_now()
@@ -347,6 +423,151 @@ class Database:
                     json.dumps(book, ensure_ascii=False, separators=(",", ":")),
                 ),
             )
+            connection.execute(
+                """DELETE FROM order_book_snapshots
+                   WHERE token_id = ? AND id NOT IN (
+                       SELECT id FROM order_book_snapshots
+                       WHERE token_id = ? ORDER BY id DESC LIMIT ?
+                   )""",
+                (token_id, token_id, self.max_order_book_snapshots_per_token),
+            )
+
+    def resolved_observations(self, horizon_seconds: int) -> list[dict[str, Any]]:
+        """決済の指定時間前に観測できたYES価格と正解を返す。"""
+        with self.connect() as connection:
+            rows = connection.execute(
+                """SELECT m.condition_id, m.question, m.end_date_utc,
+                          o.token_id, r.outcome_index,
+                          h.timestamp_utc, h.price
+                   FROM market_resolutions r
+                   JOIN markets m ON m.condition_id = r.condition_id
+                   JOIN outcomes o ON o.condition_id = m.condition_id
+                                      AND o.outcome_index = 0
+                   JOIN price_history h ON h.token_id = o.token_id
+                   WHERE m.end_date_utc IS NOT NULL
+                     AND h.timestamp_utc <= unixepoch(m.end_date_utc) - ?
+                     AND h.timestamp_utc = (
+                       SELECT MAX(h2.timestamp_utc)
+                       FROM price_history h2
+                       WHERE h2.token_id = o.token_id
+                         AND h2.timestamp_utc <= unixepoch(m.end_date_utc) - ?
+                     )
+                   ORDER BY h.timestamp_utc""",
+                (horizon_seconds, horizon_seconds),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def active_market_details(self) -> list[dict[str, Any]]:
+        """仮想運用スキャン用のアクティブ市場。raw_jsonは返さない。"""
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT condition_id FROM markets WHERE active = 1 AND closed = 0"
+            ).fetchall()
+        return [detail for row in rows if (detail := self.market_detail(row["condition_id"]))]
+
+    def save_paper_position(self, position: dict[str, Any]) -> bool:
+        """同時刻に同じ市場を二重記録しない仮想ポジションを保存する。"""
+        values = {
+            "condition_id": position["condition_id"],
+            "token_id": position["token_id"],
+            "side_index": int(position["side_index"]),
+            "model_name": position["model_name"],
+            "observed_at_utc": position.get("observed_at_utc", utc_now()),
+            "predicted_probability": decimal_text(position["predicted_probability"]),
+            "entry_cost": decimal_text(position["entry_cost"]),
+            "shares": decimal_text(position["shares"]),
+            "stake": decimal_text(position["stake"]),
+            "edge": decimal_text(position["edge"]),
+        }
+        if any(value is None for value in values.values()):
+            return False
+        columns = ", ".join(values)
+        placeholders = ", ".join(f":{name}" for name in values)
+        with self.connect() as connection:
+            cursor = connection.execute(
+                f"INSERT OR IGNORE INTO paper_positions ({columns}) VALUES ({placeholders})",
+                values,
+            )
+        return cursor.rowcount == 1
+
+    def settle_paper_positions(self) -> int:
+        """保存済みの最終アウトカムで、openの仮想ポジションだけを精算する。"""
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """UPDATE paper_positions
+                   SET status = 'resolved', settled_at_utc = ?,
+                       payout = CASE WHEN side_index = (
+                           SELECT outcome_index FROM market_resolutions r
+                           WHERE r.condition_id = paper_positions.condition_id
+                       ) THEN shares ELSE '0' END,
+                       profit = CASE WHEN side_index = (
+                           SELECT outcome_index FROM market_resolutions r
+                           WHERE r.condition_id = paper_positions.condition_id
+                       ) THEN CAST(shares AS REAL) - CAST(stake AS REAL)
+                            ELSE -CAST(stake AS REAL) END
+                   WHERE status = 'open' AND EXISTS (
+                       SELECT 1 FROM market_resolutions r
+                       WHERE r.condition_id = paper_positions.condition_id
+                   )""",
+                (utc_now(),),
+            )
+        return cursor.rowcount
+
+    def paper_position_summary(self) -> dict[str, Any]:
+        with self.connect() as connection:
+            row = connection.execute(
+                """SELECT COUNT(*) AS positions,
+                          SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) AS open_positions,
+                          SUM(CASE WHEN status = 'resolved' THEN 1 ELSE 0 END) AS resolved_positions,
+                          SUM(CASE WHEN status = 'resolved' THEN CAST(profit AS REAL) ELSE 0 END) AS profit
+                   FROM paper_positions"""
+            ).fetchone()
+        return dict(row)
+
+    def save_model_forecast(self, token_id: str, forecast: dict[str, Any]) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """INSERT INTO model_forecasts
+                   (token_id, model_id, observed_at_utc, interval_seconds,
+                    context_points, prediction_length, raw_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    token_id,
+                    str(forecast["model_id"]),
+                    utc_now(),
+                    int(forecast["interval_seconds"]),
+                    int(forecast["context_points"]),
+                    int(forecast["prediction_length"]),
+                    json.dumps(forecast, ensure_ascii=False, separators=(",", ":")),
+                ),
+            )
+
+    def event_groups(self) -> list[dict[str, Any]]:
+        """同一event_idに2つ以上の市場があるグループを返す。"""
+        with self.connect() as connection:
+            rows = connection.execute(
+                """SELECT event_id, COUNT(*) AS market_count
+                   FROM markets WHERE event_id IS NOT NULL AND active = 1 AND closed = 0
+                   GROUP BY event_id HAVING COUNT(*) >= 2"""
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def event_yes_markets(self, event_id: str) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """SELECT m.condition_id, m.question, m.fee_rate, o.token_id,
+                          o.current_price, b.raw_json, b.fetched_at_utc
+                   FROM markets m JOIN outcomes o
+                     ON o.condition_id = m.condition_id AND o.outcome_index = 0
+                   LEFT JOIN order_book_snapshots b ON b.id = (
+                     SELECT id FROM order_book_snapshots b2
+                     WHERE b2.token_id = o.token_id ORDER BY id DESC LIMIT 1
+                   )
+                   WHERE m.event_id = ? AND m.active = 1 AND m.closed = 0
+                   ORDER BY m.question""",
+                (event_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def list_markets(
         self,
@@ -539,6 +760,9 @@ class Database:
                      (SELECT COUNT(*) FROM markets) AS markets,
                      (SELECT COUNT(*) FROM outcomes) AS outcomes,
                      (SELECT COUNT(*) FROM price_history) AS price_points,
+                     (SELECT COUNT(*) FROM market_resolutions) AS resolutions,
+                     (SELECT COUNT(*) FROM paper_positions) AS paper_positions,
+                     (SELECT COUNT(*) FROM model_forecasts) AS model_forecasts,
                      (SELECT MAX(fetched_at_utc) FROM markets) AS last_sync"""
             ).fetchone()
             return dict(row)
