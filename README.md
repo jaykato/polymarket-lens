@@ -189,7 +189,7 @@ accepts no liability.
 
 ## Support
 
-This project is built and maintained by one person, in their own time. If it is
+This project is built and maintained by one person, in his own time. If it is
 useful to you, you are welcome to contribute toward its continued development.
 This is entirely optional, and nothing in the application depends on it.
 
